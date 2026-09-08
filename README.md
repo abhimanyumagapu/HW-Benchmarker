@@ -66,14 +66,15 @@ there are two ways to obtain them.
 **Download a pre-baked set.** One archive per core, published on the repository's releases page.
 
 ```bash
-gh release download cases-v1 -p 'stead-cases-*.tar.gz' -p SHA256SUMS
+gh release download -p 'stead-cases-*.tar.gz' -p SHA256SUMS   # newest release
 shasum -a 256 -c SHA256SUMS                          # verify the downloads
 for f in stead-cases-*.tar.gz; do tar xzf "$f"; done  # each unpacks at the repository root
 stead check --all                                    # validate them against the images
 ```
 
 The archives are on the [releases page](https://github.com/abhimanyumagapu/HW-Benchmarker/releases).
-One tarball per core, so a single core can be taken on its own.
+One tarball per core, so a single core can be taken on its own. Omitting the tag takes the newest
+release; name a tag, as in `gh release download cases-v1`, to reproduce an earlier evaluation.
 
 **Or bake them.** Reproduces exactly the same tree from the specs, and is the only route for a bug
 that has not been published. It runs each test twice under simulation and captures a waveform, so it
@@ -235,6 +236,9 @@ are sortable and case rows are filterable.
 from `specs/` and the container images, identically on every machine. The specs are the authoritative
 definition of the benchmark.
 
+Only the five seed specs are published here. A spec states the file, line window and class of its bug,
+so the full corpus is held in a private repository to keep it out of public training data.
+
 ## Case contents
 
 Each case directory, `cases/<repo>/<id>/`, contains:
@@ -368,7 +372,7 @@ stead/agents/    one module per tool: claude_code (Claude Code headless), llm (l
 prompts/         the system prompt issued to every method
 skills/          the rtl-debug skill appended to it
 repos/           per-core recipe: run.sh, repo.yaml, shim.patch; the Dockerfile
-specs/           bug specs: YAML and patch
+specs/           bug specs: YAML and patch; only the seed bugs are public
 cases/           baked cases: logs, waveforms, case.yaml, README
 gold/            bug patch and gold window per case, never within a case
 results/         submissions, verdicts, transcripts, published page

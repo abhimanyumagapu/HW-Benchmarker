@@ -6,12 +6,14 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 *.omx
+.vscode
 
 # Cases and gold are built, not committed: `stead bake --all specs` makes both from specs/ and the
 # images, identically on every machine. The specs are the source of the benchmark; the trees live in
 # the images. Keeping them out also keeps image_digest churn out of every diff.
 cases/
 gold/
+scratch/
 results/
 dist/
 *.fst
@@ -22,3 +24,10 @@ tests/fixtures/**/__pycache__/
 # Local notes: AGENTS.md, python_rules.md, the plan. Only the README is public.
 /*.md
 !/README.md
+*.html
+
+# Only the five seed specs are public. The rest of the corpus is the answer key and
+# lives in the private HW-Benchmarker-specs repository.
+specs/*/*
+!specs/*/*-0001.yaml
+!specs/*/*-0001.patch
