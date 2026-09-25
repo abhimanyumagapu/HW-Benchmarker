@@ -11,7 +11,7 @@ waveforms, and a STEAD record naming the first incorrect signal, the time at whi
 the expected and actual values. The tool receives the defective tree and returns ranked candidate
 lines and a patch. The harness scores both by re-running the test in a container.
 
-Five cores are supported: scr1, ibex, rocket-chip, cva6 and caliptra-rtl. Each is distributed as a
+Six cores are supported: scr1, ibex, rocket-chip, cva6, caliptra-rtl and openc910. Each is distributed as a
 Docker image containing its toolchain and a warm build; every build and simulation executes in a
 container of that image. Any model with an API key can be evaluated today. ChipAgents, Bronco, CRUX
 and Walker integrate as additional agents, returning the same submission format and scored
@@ -19,18 +19,29 @@ identically.
 
 ## Contents
 
-- [Quick start](#quick-start)
-- [Requirements](#requirements)
-- [Getting the cases](#getting-the-cases)
-- [Running your own bugs](#running-your-own-bugs)
-- [Running an evaluation](#running-an-evaluation)
-- [Results](#results)
-- [Case contents](#case-contents)
-- [Agent isolation](#agent-isolation)
-- [Scoring](#scoring)
-- [Adding bugs](#adding-bugs)
-- [Adding a core](#adding-a-core)
-- [Repository layout](#repository-layout)
+- [Benchmarks](#benchmarks)
+  - [STEAD-Bench](#stead-bench)
+  - [Contents](#contents)
+  - [Quick start](#quick-start)
+  - [Requirements](#requirements)
+  - [Getting the cases](#getting-the-cases)
+    - [What an archive contains](#what-an-archive-contains)
+    - [Publishing a set](#publishing-a-set)
+  - [Running your own bugs](#running-your-own-bugs)
+  - [Running an evaluation](#running-an-evaluation)
+    - [Solve](#solve)
+    - [Selective execution](#selective-execution)
+    - [Score](#score)
+    - [Table](#table)
+    - [Console output and environment](#console-output-and-environment)
+  - [Results](#results)
+  - [Case contents](#case-contents)
+  - [Agent isolation](#agent-isolation)
+  - [Scoring](#scoring)
+  - [Adding bugs](#adding-bugs)
+  - [Adding a core](#adding-a-core)
+  - [Repository layout](#repository-layout)
+  - [License](#license)
 
 ## Quick start
 
@@ -53,7 +64,7 @@ stead table
   of memory so that cva6 and caliptra-rtl build.
 - **Python.** 3.10 or later. `uv sync` installs the locked versions from `uv.lock`;
   `pip install -e '.[dev]'` is also supported.
-- **Disk.** Approximately 18 GB for all five cores, under 9 GB for a single core. Pulling one core
+- **Disk.** Approximately 20 GB for all six cores, under 9 GB for a single core. Pulling one core
   also retrieves the shared toolchain layer.
 - **Credentials.** The API key for each provider evaluated must be present in the environment. No
   credentials are read from configuration files.
@@ -246,7 +257,7 @@ Each case directory, `cases/<repo>/<id>/`, contains:
 
 | File | Contents |
 |---|---|
-| `logs/fail.log` | The failing run, alongside every other log it produced |
+| `logs/fail.log` | Everything the failing run printed, the verdict line last; beside it the trace files `repo.yaml` lists under `keep` |
 | `waves/fail.fst` | The waveform dump of that run |
 | `case.yaml` | Core, commit, image and image id, test, STEAD record, `also_fails`, DUT and checker paths |
 | `README.md` | The brief presented to the tool |

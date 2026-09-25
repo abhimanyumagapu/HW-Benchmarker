@@ -1,0 +1,1785 @@
+diff --git a/smart_run/logical/tb/tb_verilator.v b/smart_run/logical/tb/tb_verilator.v
+index ab4fee5..c2136bf 100644
+--- a/smart_run/logical/tb/tb_verilator.v
++++ b/smart_run/logical/tb/tb_verilator.v
+@@ -434,4 +434,32 @@ module top(
+   //if(virtual_counter[31:0]> 32'h3000000) $finish;
+   //end
+   
++  // STEAD: the waveform and a trace for the fail line, each written only
++  // when its plusarg names a file. With the timescale overridden to 1ns/1ns,
++  // $time is the dump's timestamp.
++  //   R <time> <slot> <pc> <iid>      an instruction retired
++  //   B <time> <iid> <src0> <src1>    the branch unit took an instruction;
++  //                                   time is $time-1, where the dump holds
++  //                                   the operands this edge samples
++  `define STEAD_RT  `CPU_TOP.x_ct_top_0.x_ct_core.x_ct_rtu_top.x_ct_rtu_rob.x_ct_rtu_rob_rt
++  `define STEAD_BJU `CPU_TOP.x_ct_top_0.x_ct_core.x_ct_iu_top.x_ct_iu_bju
++  integer stead_fd;
++  reg [8*512-1:0] stead_file;
++  initial begin
++    stead_fd = 0;
++    if ($value$plusargs("dump_file=%s", stead_file)) begin
++      $dumpfile(stead_file);
++      $dumpvars;
++    end
++    if ($value$plusargs("trace_file=%s", stead_file))
++      stead_fd = $fopen(stead_file, "w");
++  end
++  always @(posedge clk) if (stead_fd != 0) begin
++    if (`tb_retire0) $fwrite(stead_fd, "R %0t 0 %h %0d\n", $time, `retire0_pc, `STEAD_RT.retire_inst0_iid);
++    if (`tb_retire1) $fwrite(stead_fd, "R %0t 1 %h %0d\n", $time, `retire1_pc, `STEAD_RT.retire_inst1_iid);
++    if (`tb_retire2) $fwrite(stead_fd, "R %0t 2 %h %0d\n", $time, `retire2_pc, `STEAD_RT.retire_inst2_iid);
++    if (`STEAD_BJU.idu_iu_rf_bju_sel)
++      $fwrite(stead_fd, "B %0t %0d %h %h\n", $time - 1, `STEAD_BJU.idu_iu_rf_pipe2_iid,
++              `STEAD_BJU.idu_iu_rf_pipe2_src0, `STEAD_BJU.idu_iu_rf_pipe2_src1);
++  end
+ endmodule
+diff --git a/smart_run/tests/cases/ISA/ISA_IMAC/ct_imac_smoke.s b/smart_run/tests/cases/ISA/ISA_IMAC/ct_imac_smoke.s
+index 8df8c53..c42b513 100644
+--- a/smart_run/tests/cases/ISA/ISA_IMAC/ct_imac_smoke.s
++++ b/smart_run/tests/cases/ISA/ISA_IMAC/ct_imac_smoke.s
+@@ -250,12 +250,18 @@ LUI:
+ .global AUIPC
+ AUIPC:
+       auipc x2, 0x0
++      .option push
++      .option norvc
+       li x3, 0xa00e
++      .option pop
+       c.add x2, x3
+       auipc x4, 0xa
+       bne x2, x4, TEST_FAIL
+       auipc x2, 0x0
++      .option push
++      .option norvc
+       li x3, 0x80000014
++      .option pop
+       addw x2, x3, x2
+       auipc x4, 0x80000
+       bne x2, x4, TEST_FAIL
+@@ -1165,7 +1171,7 @@ STORE8:
+ strb0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      srb x8,x4,x5,0
++      th.srb x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1173,7 +1179,7 @@ strb0:
+ strb1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      srb x8,x4,x5,1
++      th.srb x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1181,7 +1187,7 @@ strb1:
+ strb2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      srb x8,x4,x5,2
++      th.srb x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1189,7 +1195,7 @@ strb2:
+ strb3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      srb x8,x4,x5,3
++      th.srb x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1197,7 +1203,7 @@ strb3:
+ strh0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      srh x8,x4,x5,0
++      th.srh x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1205,7 +1211,7 @@ strh0:
+ strh1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      srh x8,x4,x5,1
++      th.srh x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1213,7 +1219,7 @@ strh1:
+ strh2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      srh x8,x4,x5,2
++      th.srh x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1221,7 +1227,7 @@ strh2:
+ strh3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      srh x8,x4,x5,3
++      th.srh x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1229,7 +1235,7 @@ strh3:
+ strw0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      srw x8,x4,x5,0
++      th.srw x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1237,7 +1243,7 @@ strw0:
+ strw1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      srw x8,x4,x5,1
++      th.srw x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1245,7 +1251,7 @@ strw1:
+ strw2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      srw x8,x4,x5,2
++      th.srw x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1253,7 +1259,7 @@ strw2:
+ strw3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      srw x8,x4,x5,3
++      th.srw x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1261,7 +1267,7 @@ strw3:
+ strd0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      srd x8,x4,x5,0
++      th.srd x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1269,7 +1275,7 @@ strd0:
+ strd1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      srd x8,x4,x5,1
++      th.srd x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1277,7 +1283,7 @@ strd1:
+ strd2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      srd x8,x4,x5,2
++      th.srd x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1285,7 +1291,7 @@ strd2:
+ strd3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      srd x8,x4,x5,3
++      th.srd x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1296,7 +1302,7 @@ strd3:
+ sutrb0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      surb x8,x4,x5,0
++      th.surb x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1304,7 +1310,7 @@ sutrb0:
+ sturb1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      surb x8,x4,x5,1
++      th.surb x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1312,7 +1318,7 @@ sturb1:
+ sturb2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      surb x8,x4,x5,2
++      th.surb x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1320,7 +1326,7 @@ sturb2:
+ sturb3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      surb x8,x4,x5,3
++      th.surb x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaa
+       bne x30,x31,TEST_FAIL
+@@ -1328,7 +1334,7 @@ sturb3:
+ sturh0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      surh x8,x4,x5,0
++      th.surh x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1336,7 +1342,7 @@ sturh0:
+ sturh1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      surh x8,x4,x5,1
++      th.surh x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1344,7 +1350,7 @@ sturh1:
+ sturh2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      surh x8,x4,x5,2
++      th.surh x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1352,7 +1358,7 @@ sturh2:
+ sturh3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      surh x8,x4,x5,3
++      th.surh x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1360,7 +1366,7 @@ sturh3:
+ sturw0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      surw x8,x4,x5,0
++      th.surw x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1368,7 +1374,7 @@ sturw0:
+ sturw1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      surw x8,x4,x5,1
++      th.surw x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1376,7 +1382,7 @@ sturw1:
+ sturw2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      surw x8,x4,x5,2
++      th.surw x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1384,7 +1390,7 @@ sturw2:
+ sturw3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      surw x8,x4,x5,3
++      th.surw x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1392,7 +1398,7 @@ sturw3:
+ sturd0:
+       li x29,0x000000000020000
+       sd x0,0x0(x29)
+-      surd x8,x4,x5,0
++      th.surd x8,x4,x5,0
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1400,7 +1406,7 @@ sturd0:
+ sturd1:
+       li x29,0x000000000030000
+       sd x0,0x0(x29)
+-      surd x8,x4,x5,1
++      th.surd x8,x4,x5,1
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1408,7 +1414,7 @@ sturd1:
+ sturd2:
+       li x29,0x000000000050000
+       sd x0,0x0(x29)
+-      surd x8,x4,x5,2
++      th.surd x8,x4,x5,2
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+@@ -1416,7 +1422,7 @@ sturd2:
+ sturd3:
+       li x29,0x000000000090000
+       sd x0,0x0(x29)
+-      surd x8,x4,x5,3
++      th.surd x8,x4,x5,3
+       ld x31,0x0(x29)
+       li x30,0xaaaaaaaaaaaaaaaa
+       bne x30,x31,TEST_FAIL
+diff --git a/smart_run/tests/cases/ISA/ISA_THEAD/isa_thead_smoke.s b/smart_run/tests/cases/ISA/ISA_THEAD/isa_thead_smoke.s
+index 827452e..9c4607c 100644
+--- a/smart_run/tests/cases/ISA/ISA_THEAD/isa_thead_smoke.s
++++ b/smart_run/tests/cases/ISA/ISA_THEAD/isa_thead_smoke.s
+@@ -39,51 +39,51 @@ ENABLE_THEADEE:
+ .global rev_test
+ rev_test:
+       li x6, 0x123456789abcdef0
+-      rev x7, x6
++      th.rev x7, x6
+       li x6, 0xf0debc9a78563412
+       bne x6, x7, TEST_FAIL
+       li x6, 0x0
+-      rev x7, x6
++      th.rev x7, x6
+       li x6, 0x0
+       bne x6, x7, TEST_FAIL
+       li x6, 0xffffffff
+-      rev x7, x6
++      th.rev x7, x6
+       li x6, 0xffffffff00000000
+       bne x6, x7, TEST_FAIL
+ .global ff0_test
+ ff0_test:
+       li x6, 0xffffffffffffffff
+-      ff0 x7, x6
++      th.ff0 x7, x6
+       li x6, 64
+       bne x6, x7, TEST_FAIL
+       li x6, 0x7fffffffffffffff
+-      ff0 x7, x6
++      th.ff0 x7, x6
+       li x6, 0
+       bne x6, x7, TEST_FAIL
+       li x6, 0xfffffffffffffffe
+-      ff0 x7, x6
++      th.ff0 x7, x6
+       li x6, 63
+       bne x6, x7, TEST_FAIL
+       li x6, 0xfffeff6ff8ff8fff
+-      ff0 x7, x6
++      th.ff0 x7, x6
+       li x6, 15
+       bne x6, x7, TEST_FAIL
+ .global ff1_test
+ ff1_test:
+       li x6, 0x0
+-      ff1 x7, x6
++      th.ff1 x7, x6
+       li x6, 64
+       bne x6, x7, TEST_FAIL
+       li x6, 0xffffffffffffffff
+-      ff1 x7, x6
++      th.ff1 x7, x6
+       li x6, 0x0
+       bne x6, x7, TEST_FAIL
+       li x6, 0x1
+-      ff1 x7, x6
++      th.ff1 x7, x6
+       li x6, 63
+       bne x6, x7, TEST_FAIL
+       li x6, 0x0001ff6ff8ff8fff
+-      ff1 x7, x6
++      th.ff1 x7, x6
+       li x6, 15
+       bne x6, x7, TEST_FAIL
+ .global ext_instruction
+@@ -92,28 +92,28 @@ ext_instruction:
+ .global ext_1_bit
+ ext_1_bit:
+       li x12, 0xff
+-      ext x14, x12, 1, 1
++      th.ext x14, x12, 1, 1
+       li x15, 0xffffffffffffffff
+       bne x15, x14, TEST_FAIL
+       li x12, 0x80000000
+-      ext x14, x12, 1, 1
++      th.ext x14, x12, 1, 1
+       li x15, 0x0
+       bne x15, x14,TEST_FAIL
+ .global ext_64_bit
+ ext_64_bit:
+       li x12, 0xabcdabcdabcdabcd
+-      ext x14, x12, 63, 0
++      th.ext x14, x12, 63, 0
+       bne x14, x12, TEST_FAIL
+ .global ext_sign_bit1
+ ext_sign_bit1:
+       li x12, 0xabcdabcd
+-      ext x14, x12, 2, 1
++      th.ext x14, x12, 2, 1
+       li x15, 0xfffffffffffffffe
+       bne x15, x14,TEST_FAIL
+ .global ext_sign_bit0
+ ext_sign_bit0:
+       li x12, 0xabcdabcd
+-      ext x14, x12, 5, 3
++      th.ext x14, x12, 5, 3
+       li x15, 0x1
+       bne x15, x14,TEST_FAIL
+ .global extu_instruction
+@@ -122,28 +122,28 @@ extu_instruction:
+ .global extu_1_bit
+ extu_1_bit:
+       li x12, 0xff
+-      extu x14, x12, 1, 1
++      th.extu x14, x12, 1, 1
+       li x15, 0x1
+       bne x15, x14, TEST_FAIL
+       li x12, 0x80000000
+-      extu x14, x12, 1, 1
++      th.extu x14, x12, 1, 1
+       li x15, 0x0
+       bne x15, x14,TEST_FAIL
+ .global extu_64_bit
+ extu_64_bit:
+       li x12, 0xabcdabcdabcdabcd
+-      extu x14, x12, 63, 0
++      th.extu x14, x12, 63, 0
+       bne x14, x12, TEST_FAIL
+ .global extu_sign_bit1
+ extu_sign_bit1:
+       li x12, 0xabcdabcd
+-      extu x14, x12, 2, 1
++      th.extu x14, x12, 2, 1
+       li x15, 0x2
+       bne x15, x14,TEST_FAIL
+ .global extu_sign_bit0
+ extu_sign_bit0:
+       li x12, 0xabcdabcd
+-      extu x14, x12, 5, 3
++      th.extu x14, x12, 5, 3
+       li x15, 0x1
+       bne x15, x14,TEST_FAIL
+ .global mveqz_instrcution
+@@ -153,11 +153,11 @@ mveqz_instrcution:
+       li x6,0xaaaaaaaaaaaaaaaa
+       li x7,0xffffffffffffff
+       li x8,0xffffffffffffff
+-      mveqz x7,x6,x3
++      th.mveqz x7,x6,x3
+       bne x7,x6, TEST_FAIL
+-      mveqz x7,x8,x4
++      th.mveqz x7,x8,x4
+       bne x7,x6, TEST_FAIL
+-      mveqz x7,x8,x0
++      th.mveqz x7,x8,x0
+       bne x7,x8, TEST_FAIL
+ .global mvnez_instruction
+ mvnez_instruction:
+@@ -166,11 +166,11 @@ mvnez_instruction:
+       li x6,0xaaaaaaaaaaaaaaaa
+       li x7,0x5555555555
+       li x8,0x5555555555
+-      mvnez x7,x6,x3
++      th.mvnez x7,x6,x3
+       bne x7,x8, TEST_FAIL
+-      mvnez x7,x6,x4
++      th.mvnez x7,x6,x4
+       bne x7,x6, TEST_FAIL
+-      mvnez x7,x8,x0
++      th.mvnez x7,x8,x0
+       bne x7,x6, TEST_FAIL
+       .option norvc
+ .global STORE1
+@@ -180,27 +180,27 @@ STORE1:
+       li x4,0x000000000000a000
+       li x18,0xfffffffffffffff8
+       sd x8,0xffffffffffffffe0(x4)
+-      lrd x5,x4,x18,2
++      th.lrd x5,x4,x18,2
+       bne x8,x5,TEST_FAIL
+       li x18,0x7f8
+       li x19,0xffffffff000007f8
+       sd x8,0x7f8(x4)
+-      lrd x5, x4, x18, 0
+-      lurd x9, x4, x19, 0
++      th.lrd x5, x4, x18, 0
++      th.lurd x9, x4, x19, 0
+       bne x8,x5,TEST_FAIL
+       bne x8,x9,TEST_FAIL
+       li x18,0
+       li x19,0xffffffff00000000
+       sd x3,0x0(x4)
+-      lrd x5,x4,x18,1
+-      lurd x9,x4,x19,1
++      th.lrd x5,x4,x18,1
++      th.lurd x9,x4,x19,1
+       bne x3,x5,TEST_FAIL
+       bne x9,x5,TEST_FAIL
+       li x18,0x10
+       li x19,0xffffffff00000010
+       sd x8,0x80(x4)
+-      lrd x5,x4,x18,3
+-      lurd x9,x4,x19,3
++      th.lrd x5,x4,x18,3
++      th.lurd x9,x4,x19,3
+       bne x8,x5,TEST_FAIL
+       bne x9,x5,TEST_FAIL
+ .global STORE2
+@@ -213,11 +213,11 @@ STORE2:
+       li x19,0x0000ffff00000000
+       sd x9,0x0(x4)
+       sw x6,0x0(x4)
+-      lrwu x7,x4,x18,0
+-      lurwu x20,x4,x18,0
+-      lrw x5,x4,x18,0
+-      lurw x21,x4,x18,0
+-      lrd x11,x4,x18,0
++      th.lrwu x7,x4,x18,0
++      th.lurwu x20,x4,x18,0
++      th.lrw x5,x4,x18,0
++      th.lurw x21,x4,x18,0
++      th.lrd x11,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -227,9 +227,9 @@ STORE2:
+       li x19,0x0000ffff00000000
+       sd x9,-256(x4)
+       sw x6,-256(x4)
+-      lrwu x7,x4,x18,0
+-      lrw x5,x4,x18,0
+-      lrd x11,x4,x18,0
++      th.lrwu x7,x4,x18,0
++      th.lrw x5,x4,x18,0
++      th.lrd x11,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+       bne x11,x10,TEST_FAIL
+@@ -237,11 +237,11 @@ STORE2:
+       li x19,0x0000ffff0000003fc
+       sd x9,0x7f8(x4)
+       sw x6,0x7f8(x4)
+-      lrwu x7,x4,x18,1
+-      lurwu x20,x4,x18,1
+-      lrw x5,x4,x18,1
+-      lurw x21,x4,x18,1
+-      lrd x11,x4,x18,1
++      th.lrwu x7,x4,x18,1
++      th.lurwu x20,x4,x18,1
++      th.lrw x5,x4,x18,1
++      th.lurw x21,x4,x18,1
++      th.lrd x11,x4,x18,1
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -251,11 +251,11 @@ STORE2:
+       li x19,0x0000ffff0000007e
+       sd x9,0x1f8(x4)
+       sw x6,0x1f8(x4)
+-      lrwu x7,x4,x18,2
+-      lurwu x20,x4,x18,2
+-      lrw x5,x4,x18,2
+-      lurw x21,x4,x18,2
+-      lrd x11,x4,x18,2
++      th.lrwu x7,x4,x18,2
++      th.lurwu x20,x4,x18,2
++      th.lrw x5,x4,x18,2
++      th.lurw x21,x4,x18,2
++      th.lrd x11,x4,x18,2
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -265,11 +265,11 @@ STORE2:
+       li x19,0x0000ffff0000007e
+       sd x9,0x7f0(x4)
+       sw x6,0x7f0(x4)
+-      lrwu x7,x4,x18,3
+-      lurwu x20,x4,x18,3
+-      lrw x5,x4,x18,3
+-      lurw x21,x4,x18,3
+-      lrd x11,x4,x18,3
++      th.lrwu x7,x4,x18,3
++      th.lurwu x20,x4,x18,3
++      th.lrw x5,x4,x18,3
++      th.lurw x21,x4,x18,3
++      th.lrd x11,x4,x18,3
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -284,8 +284,8 @@ STORE3:
+       bne x6,x5,TEST_FAIL
+       li x18,0x7fc
+       sw x6,0x7fc(x4)
+-      lrwu x7,x4,x18,0
+-      lrw x5,x4,x18,0
++      th.lrwu x7,x4,x18,0
++      th.lrw x5,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+ .global STORE4
+@@ -299,11 +299,11 @@ STORE4:
+       li x19,0xffff000000000000
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lrhu x7,x4,x18,0
+-      lurhu x20,x4,x18,0
+-      lrh x5, x4,x18,0
+-      lurh x21, x4,x19,0
+-      lrw x11,x4,x18,0
++      th.lrhu x7,x4,x18,0
++      th.lurhu x20,x4,x18,0
++      th.lrh x5, x4,x18,0
++      th.lurh x21, x4,x19,0
++      th.lrw x11,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -313,9 +313,9 @@ STORE4:
+       li x19,0xffff000000000000
+       sd x9,-16(x4)
+       sh x6,-16(x4)
+-      lrhu x7,x4,x18,0
+-      lrh x5, x4,x18,0
+-      lrw x11,x4,x18,0
++      th.lrhu x7,x4,x18,0
++      th.lrh x5, x4,x18,0
++      th.lrw x11,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+       bne x11,x31,TEST_FAIL
+@@ -323,11 +323,11 @@ STORE4:
+       li x19,0xffff0000000003f8
+       sd x9,0x7f0(x4)
+       sh x6,0x7f0(x4)
+-      lrhu x7,x4,x18,1
+-      lurhu x20,x4,x18,1
+-      lrh x5, x4,x18,1
+-      lurh x21, x4,x19,1
+-      lrw x11,x4,x18,1
++      th.lrhu x7,x4,x18,1
++      th.lurhu x20,x4,x18,1
++      th.lrh x5, x4,x18,1
++      th.lurh x21, x4,x19,1
++      th.lrw x11,x4,x18,1
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -337,11 +337,11 @@ STORE4:
+       li x19,0xffff00000000007c
+       sd x9,0x1f0(x4)
+       sh x6,0x1f0(x4)
+-      lrhu x7,x4,x18,2
+-      lurhu x20,x4,x18,2
+-      lrh x5, x4,x18,2
+-      lurh x21, x4,x19,2
+-      lrw x11,x4,x18,2
++      th.lrhu x7,x4,x18,2
++      th.lurhu x20,x4,x18,2
++      th.lrh x5, x4,x18,2
++      th.lurh x21, x4,x19,2
++      th.lrw x11,x4,x18,2
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -351,11 +351,11 @@ STORE4:
+       li x19,0xffff0000000000Fc
+       sd x9,0x7e0(x4)
+       sh x6,0x7e0(x4)
+-      lrhu x7,x4,x18,3
+-      lurhu x20,x4,x18,3
+-      lrh x5, x4,x18,3
+-      lurh x21, x4,x19,3
+-      lrw x11,x4,x18,3
++      th.lrhu x7,x4,x18,3
++      th.lurhu x20,x4,x18,3
++      th.lrh x5, x4,x18,3
++      th.lurh x21, x4,x19,3
++      th.lrw x11,x4,x18,3
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -365,8 +365,8 @@ STORE4:
+ STORE5:
+       li x18,0xfffffffffffffffe
+       sh x6,0xfffffffffffffffe(x4)
+-      lrhu x7,x4,x18,0
+-      lrh x5,x4,x18,0
++      th.lrhu x7,x4,x18,0
++      th.lrh x5,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+ .global STORE6
+@@ -374,10 +374,10 @@ STORE6:
+       li x18,0x7fe
+       li x19,0xffffff00000007fe
+       sh x6,0x7fe(x4)
+-      lrhu x7,x4,x18,0
+-      lurhu x20,x4,x19,0
+-      lrh x5,x4,x18,0
+-      lurh x21,x4,x19,0
++      th.lrhu x7,x4,x18,0
++      th.lurhu x20,x4,x19,0
++      th.lrh x5,x4,x18,0
++      th.lurh x21,x4,x19,0
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x6,x5,TEST_FAIL
+@@ -393,11 +393,11 @@ STORE7:
+       li x19,0xffefff0f00000000
+       sd x9,0x0(x4)
+       sb x3,0x0(x4)
+-      lrbu x7,x4,x18,0
+-      lurbu x20,x4,x19,0
+-      lrb x5,x4,x18,0
+-      lurb x21,x4,x19,0
+-      lrw x11,x4,x18,0
++      th.lrbu x7,x4,x18,0
++      th.lurbu x20,x4,x19,0
++      th.lrb x5,x4,x18,0
++      th.lurb x21,x4,x19,0
++      th.lrw x11,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x3,x5,TEST_FAIL
+@@ -407,11 +407,11 @@ STORE7:
+       li x19,0xffefff0f000003f0
+       sd x9,0x7e0(x4)
+       sb x3,0x7e0(x4)
+-      lrbu x7,x4,x18,1
+-      lurbu x20,x4,x19,1
+-      lrb x5,x4,x18,1
+-      lurb x21,x4,x19,1
+-      lrw x11,x4,x18,1
++      th.lrbu x7,x4,x18,1
++      th.lurbu x20,x4,x19,1
++      th.lrb x5,x4,x18,1
++      th.lurb x21,x4,x19,1
++      th.lrw x11,x4,x18,1
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x3,x5,TEST_FAIL
+@@ -421,11 +421,11 @@ STORE7:
+       li x19,0xffeffff000000078
+       sd x9,0x1e0(x4)
+       sb x3,0x1e0(x4)
+-      lrbu x7,x4,x18,2
+-      lurbu x20,x4,x19,2
+-      lrb x5,x4,x18,2
+-      lurb x21,x4,x19,2
+-      lrw x11,x4,x18,2
++      th.lrbu x7,x4,x18,2
++      th.lurbu x20,x4,x19,2
++      th.lrb x5,x4,x18,2
++      th.lurb x21,x4,x19,2
++      th.lrw x11,x4,x18,2
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x3,x5,TEST_FAIL
+@@ -435,11 +435,11 @@ STORE7:
+       li x19,0xffeffff0000000F8
+       sd x9,0x7c0(x4)
+       sb x3,0x7c0(x4)
+-      lrbu x7,x4,x18,3
+-      lurbu x20,x4,x19,3
+-      lrb x5,x4,x18,3
+-      lurb x21,x4,x19,3
+-      lrw x11,x4,x18,3
++      th.lrbu x7,x4,x18,3
++      th.lurbu x20,x4,x19,3
++      th.lrb x5,x4,x18,3
++      th.lurb x21,x4,x19,3
++      th.lrw x11,x4,x18,3
+       bne x7,x8,TEST_FAIL
+       bne x20,x8,TEST_FAIL
+       bne x3,x5,TEST_FAIL
+@@ -449,14 +449,14 @@ STORE7:
+ STORE8:
+       sb x3,0xffffffffffffffff(x4)
+       li x18,0xffffffffffffffff
+-      lrbu x7,x4,x18,0
+-      lrb x5,x4,x18,0
++      th.lrbu x7,x4,x18,0
++      th.lrb x5,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x3,x5,TEST_FAIL
+       li x18,0x7ff
+       sb x3,0x7ff(x4)
+-      lrbu x7,x4,x18,0
+-      lrb x5,x4,x18,0
++      th.lrbu x7,x4,x18,0
++      th.lrb x5,x4,x18,0
+       bne x7,x8,TEST_FAIL
+       bne x3,x5,TEST_FAIL
+ .global ld_sdib
+@@ -467,50 +467,50 @@ ld_sdib:
+       li x18,0xfffffffffffffff8
+       li x19,0x9fe0
+       sd x8,0xffffffffffffffe0(x4)
+-      ldib x5,(x4),-8,2
++      th.ldib x5,(x4),-8,2
+       bne x8,x5,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fef
+       li x18,0xf
+       sd x8,0xf(x4)
+-      ldib x5, (x4), 0xf, 0
++      th.ldib x5, (x4), 0xf, 0
+       bne x8,x5,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fef
+       li x18,0
+       sd x8,0x0(x4)
+-      ldib x5,(x4),0x0,1
++      th.ldib x5,(x4),0x0,1
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0xa02f
+       li x18,0x8
+       sd x8,0x40(x4)
+-      ldib x5,(x4),0x8,3
++      th.ldib x5,(x4),0x8,3
+       bne x8,x5,TEST_FAIL
+       li x8,0xaaaaaaaaaaaaaaaa
+       li x3,0xffffffffffffffaa
+       li x4,0x000000000000a000
+       li x18,0xfffffffffffffff8
+       li x19,0x9fe0
+-      sdib x5,(x4),-8,2
++      th.sdib x5,(x4),-8,2
+       ld x8,0x0(x4)
+       bne x8,x5,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fef
+       li x18,0xf
+-      sdib x5, (x4), 0xf, 0
++      th.sdib x5, (x4), 0xf, 0
+       ld x8,0(x4)
+       bne x8,x5,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fef
+       li x18,0
+-      sdib x5,(x4),0x0,1
++      th.sdib x5,(x4),0x0,1
+       ld x8,0x0(x4)
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0xa02f
+       li x18,0x8
+-      sdib x5,(x4),0x8,3
++      th.sdib x5,(x4),0x8,3
+       ld x8,0x0(x4)
+       bne x8,x5,TEST_FAIL
+ .global ld_sdia
+@@ -521,25 +521,25 @@ ld_sdia:
+       li x18,0xfffffffffffffff8
+       li x19,0x9fe0
+       sd x8,0x0(x4)
+-      ldia x5,(x4),-8,2
++      th.ldia x5,(x4),-8,2
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0x9fef
+       li x18,0xf
+       sd x8,0x0(x4)
+-      ldia x5, (x4), 0xf, 0
++      th.ldia x5, (x4), 0xf, 0
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0x9fef
+       li x18,0
+       sd x8,0x0(x4)
+-      ldia x5,(x4),0x0,1
++      th.ldia x5,(x4),0x0,1
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0xa02f
+       li x18,0x8
+       sd x8,0x0(x4)
+-      ldia x5,(x4),0x8,3
++      th.ldia x5,(x4),0x8,3
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x3,0xffffffffffffffbb
+@@ -547,25 +547,25 @@ ld_sdia:
+       li x4,0x000000000000a000
+       li x18,0xfffffffffffffff8
+       li x19,0x9fe0
+-      sdia x5,(x4),-8,2
++      th.sdia x5,(x4),-8,2
+       sd x8,0xffffffffffffffe0(x4)
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0x9fef
+       li x18,0xf
+-      sdia x5, (x4), 0xf, 0
++      th.sdia x5, (x4), 0xf, 0
+       ld x8,0xfffffffffffffff1(x4)
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0x9fef
+       li x18,0
+-      sdia x5,(x4),0x0,1
++      th.sdia x5,(x4),0x0,1
+       ld x8,0x0(x4)
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+       li x19,0xa02f
+       li x18,0x8
+-      sdia x5,(x4),0x8,3
++      th.sdia x5,(x4),0x8,3
+       ld x8,0xffffffffffffffc0(x4)
+       bne x8,x5,TEST_FAIL
+       bne x4,x19, TEST_FAIL
+@@ -579,19 +579,19 @@ ld_swib:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sw x6,0x0(x4)
+-      lwib x7,(x4),0x0,0
++      th.lwib x7,(x4),0x0,0
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa008
+       sd x9,0x8(x4)
+       sw x6,0x8(x4)
+-      lwib x7,(x4),0x4,1
++      th.lwib x7,(x4),0x4,1
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fc8
+       sd x9,-64(x4)
+       sw x6,-64(x4)
+-      lwib x7,(x4),-16,2
++      th.lwib x7,(x4),-16,2
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffff80000000
+@@ -602,19 +602,19 @@ ld_swib:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sw x6,0x0(x4)
+-      lwuib x20,(x4),0x0,0
++      th.lwuib x20,(x4),0x0,0
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa008
+       sd x9,0x8(x4)
+       sw x6,0x8(x4)
+-      lwuib x20,(x4),0x4,1
++      th.lwuib x20,(x4),0x4,1
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fc8
+       sd x9,-64(x4)
+       sw x6,-64(x4)
+-      lwuib x20,(x4),-16,2
++      th.lwuib x20,(x4),-16,2
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffff80000000
+@@ -624,19 +624,19 @@ ld_swib:
+       li x4,0xa000
+       li x19,0xa000
+       sd x9,0x0(x4)
+-      swib x6,(x4),0x0,0
++      th.swib x6,(x4),0x0,0
+       lw x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa008
+       sd x9,0x8(x4)
+-      swib x6,(x4),0x4,1
++      th.swib x6,(x4),0x4,1
+       lw x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fc8
+       sd x9,-64(x4)
+-      swib x6,(x4),-16,2
++      th.swib x6,(x4),-16,2
+       lw x7,0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+@@ -651,19 +651,19 @@ ld_swia:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sw x6,0x0(x4)
+-      lwia x7,(x4),0x0,0
++      th.lwia x7,(x4),0x0,0
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa008
+       sd x9,0x0(x4)
+       sw x6,0x0(x4)
+-      lwia x7,(x4),0x4,1
++      th.lwia x7,(x4),0x4,1
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fc8
+       sd x9,0(x4)
+       sw x6,0(x4)
+-      lwia x7,(x4),-16,2
++      th.lwia x7,(x4),-16,2
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffff80000000
+@@ -675,19 +675,19 @@ ld_swia:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sw x6,0x0(x4)
+-      lwuia x20,(x4),0x0,0
++      th.lwuia x20,(x4),0x0,0
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa008
+       sd x9,0x0(x4)
+       sw x6,0x0(x4)
+-      lwuia x20,(x4),0x4,1
++      th.lwuia x20,(x4),0x4,1
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fc8
+       sd x9,0(x4)
+       sw x6,0(x4)
+-      lwuia x20,(x4),-16,2
++      th.lwuia x20,(x4),-16,2
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffff80000000
+@@ -698,19 +698,19 @@ ld_swia:
+       li x18,0
+       li x19,0xa000
+       sd x9,0x0(x4)
+-      swia x6,(x4),0x0,0
++      th.swia x6,(x4),0x0,0
+       lw x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa008
+       sd x9,0x0(x4)
+-      swia x6,(x4),0x4,1
++      th.swia x6,(x4),0x4,1
+       lw x7,-8(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0x9fc8
+       sd x9,0(x4)
+-      swia x6,(x4),-16,2
++      th.swia x6,(x4),-16,2
+       lw x7,0x40(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+@@ -724,25 +724,25 @@ ld_shib:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhib x7,(x4),0x0,0
++      th.lhib x7,(x4),0x0,0
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x10(x4)
+       sh x6,0x10(x4)
+-      lhib x7,(x4),0x8,1
++      th.lhib x7,(x4),0x8,1
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x30(x4)
+       sh x6,0x30(x4)
+-      lhib x7,(x4),0xc,2
++      th.lhib x7,(x4),0xc,2
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,-64(x4)
+       sh x6,-64(x4)
+-      lhib x7,(x4),-8,3
++      th.lhib x7,(x4),-8,3
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffff8000
+@@ -753,25 +753,25 @@ ld_shib:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhuib x20,(x4),0x0,0
++      th.lhuib x20,(x4),0x0,0
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x10(x4)
+       sh x6,0x10(x4)
+-      lhuib x20,(x4),0x8,1
++      th.lhuib x20,(x4),0x8,1
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x30(x4)
+       sh x6,0x30(x4)
+-      lhuib x20,(x4),0xc,2
++      th.lhuib x20,(x4),0xc,2
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,-64(x4)
+       sh x6,-64(x4)
+-      lhuib x20,(x4),-8,3
++      th.lhuib x20,(x4),-8,3
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffff8000
+@@ -781,25 +781,25 @@ ld_shib:
+       li x4,0xa000
+       li x19,0xa000
+       sd x9,0x0(x4)
+-      shib x6,(x4),0x0,0
++      th.shib x6,(x4),0x0,0
+       lh x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x10(x4)
+-      shib x6,(x4),0x8,1
++      th.shib x6,(x4),0x8,1
+       lh x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x30(x4)
+-      shib x6,(x4),0xc,2
++      th.shib x6,(x4),0xc,2
+       lh x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,-64(x4)
+-      shib x6,(x4),-8,3
++      th.shib x6,(x4),-8,3
+       lh x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+@@ -813,25 +813,25 @@ ld_shia:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhia x7,(x4),0x0,0
++      th.lhia x7,(x4),0x0,0
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhia x7,(x4),0x8,1
++      th.lhia x7,(x4),0x8,1
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhia x7,(x4),0xc,2
++      th.lhia x7,(x4),0xc,2
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,0(x4)
+       sh x6,0(x4)
+-      lhia x7,(x4),-8,3
++      th.lhia x7,(x4),-8,3
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffff8000
+@@ -842,25 +842,25 @@ ld_shia:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhuia x20,(x4),0x0,0
++      th.lhuia x20,(x4),0x0,0
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhuia x20,(x4),0x8,1
++      th.lhuia x20,(x4),0x8,1
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x0(x4)
+       sh x6,0x0(x4)
+-      lhuia x20,(x4),0xc,2
++      th.lhuia x20,(x4),0xc,2
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,0(x4)
+       sh x6,0(x4)
+-      lhuia x20,(x4),-8,3
++      th.lhuia x20,(x4),-8,3
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffff8000
+@@ -870,25 +870,25 @@ ld_shia:
+       li x4,0xa000
+       li x19,0xa000
+       sd x9,0x0(x4)
+-      shia x6,(x4),0x0,0
++      th.shia x6,(x4),0x0,0
+       lh x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x0(x4)
+-      shia x7,(x4),0x8,1
++      th.shia x7,(x4),0x8,1
+       lh x6,-16(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x0(x4)
+-      shia x6,(x4),0xc,2
++      th.shia x6,(x4),0xc,2
+       lh x7,-48(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,0(x4)
+-      shia x6,(x4),-8,3
++      th.shia x6,(x4),-8,3
+       lh x7,0x40(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+@@ -902,25 +902,25 @@ ld_sbib:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbib x7,(x4),0x0,0
++      th.lbib x7,(x4),0x0,0
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x10(x4)
+       sb x6,0x10(x4)
+-      lbib x7,(x4),0x8,1
++      th.lbib x7,(x4),0x8,1
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x30(x4)
+       sb x6,0x30(x4)
+-      lbib x7,(x4),0xc,2
++      th.lbib x7,(x4),0xc,2
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,-64(x4)
+       sb x6,-64(x4)
+-      lbib x7,(x4),-8,3
++      th.lbib x7,(x4),-8,3
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffffff80
+@@ -931,25 +931,25 @@ ld_sbib:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbuib x20,(x4),0x0,0
++      th.lbuib x20,(x4),0x0,0
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x10(x4)
+       sb x6,0x10(x4)
+-      lbuib x20,(x4),0x8,1
++      th.lbuib x20,(x4),0x8,1
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x30(x4)
+       sb x6,0x30(x4)
+-      lbuib x20,(x4),0xc,2
++      th.lbuib x20,(x4),0xc,2
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,-64(x4)
+       sb x6,-64(x4)
+-      lbuib x20,(x4),-8,3
++      th.lbuib x20,(x4),-8,3
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffffff80
+@@ -959,25 +959,25 @@ ld_sbib:
+       li x4,0xa000
+       li x19,0xa000
+       sd x9,0x0(x4)
+-      sbib x6,(x4),0x0,0
++      th.sbib x6,(x4),0x0,0
+       lb x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x10(x4)
+-      sbib x6,(x4),0x8,1
++      th.sbib x6,(x4),0x8,1
+       lb x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x30(x4)
+-      sbib x6,(x4),0xc,2
++      th.sbib x6,(x4),0xc,2
+       lb x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,-64(x4)
+-      sbib x7,(x4),-8,3
++      th.sbib x7,(x4),-8,3
+       lb x6,0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+@@ -991,25 +991,25 @@ ld_sbia:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbia x7,(x4),0x0,0
++      th.lbia x7,(x4),0x0,0
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbia x7,(x4),0x8,1
++      th.lbia x7,(x4),0x8,1
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbia x7,(x4),0xc,2
++      th.lbia x7,(x4),0xc,2
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,0(x4)
+       sb x6,0(x4)
+-      lbia x7,(x4),-8,3
++      th.lbia x7,(x4),-8,3
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffffff80
+@@ -1020,25 +1020,25 @@ ld_sbia:
+       li x19,0xa000
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbuia x20,(x4),0x0,0
++      th.lbuia x20,(x4),0x0,0
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbuia x20,(x4),0x8,1
++      th.lbuia x20,(x4),0x8,1
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x0(x4)
+       sb x6,0x0(x4)
+-      lbuia x20,(x4),0xc,2
++      th.lbuia x20,(x4),0xc,2
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,0(x4)
+       sb x6,0(x4)
+-      lbuia x20,(x4),-8,3
++      th.lbuia x20,(x4),-8,3
+       bne x20,x8,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x6,0xffffffffffffff80
+@@ -1048,25 +1048,25 @@ ld_sbia:
+       li x4,0xa000
+       li x19,0xa000
+       sd x9,0x0(x4)
+-      sbia x6,(x4),0x0,0
++      th.sbia x6,(x4),0x0,0
+       lb x7,0x0(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa010
+       sd x9,0x0(x4)
+-      sbia x6,(x4),0x8,1
++      th.sbia x6,(x4),0x8,1
+       lb x7,-16(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa040
+       sd x9,0x0(x4)
+-      sbia x6,(x4),0xc,2
++      th.sbia x6,(x4),0xc,2
+       lb x7,-48(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+       li x19,0xa000
+       sd x9,0(x4)
+-      sbia x6,(x4),-8,3
++      th.sbia x6,(x4),-8,3
+       lb x7,0x40(x4)
+       bne x7,x6,TEST_FAIL
+       bne x19,x4,TEST_FAIL
+@@ -1078,41 +1078,41 @@ ld_sdd:
+       li x4,0x000000000000a000
+       sd x8,0x30(x4)
+       sd x9,0x38(x4)
+-      ldd x5,x6,(x4),3,4
++      th.ldd x5,x6,(x4),3,4
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       sd x8,0x20(x4)
+       sd x9,0x28(x4)
+-      ldd x5,x6,(x4),2,4
++      th.ldd x5,x6,(x4),2,4
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       sd x8,0(x4)
+       sd x9,8(x4)
+-      ldd x5,x6,(x4),0,4
++      th.ldd x5,x6,(x4),0,4
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       sd x8,0x10(x4)
+       sd x9,0x18(x4)
+-      ldd x5,x6,(x4),1,4
++      th.ldd x5,x6,(x4),1,4
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       addi x4,x4,0x80
+-      sdd x8,x9,(x4),2,4
++      th.sdd x8,x9,(x4),2,4
+       ld x5,0x20(x4)
+       ld x6,0x28(x4)
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+-      sdd x8,x9,(x4),3,4
++      th.sdd x8,x9,(x4),3,4
+       ld x5,0x30(x4)
+       ld x6,0x38(x4)
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+-      sdd x8,x9,(x4),0,4
++      th.sdd x8,x9,(x4),0,4
+       ld x5,0x0(x4)
+       ld x6,0x8(x4)
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+-      sdd x8,x9,(x4),1,4
++      th.sdd x8,x9,(x4),1,4
+       ld x5,0x10(x4)
+       ld x6,0x18(x4)
+       bne x8,x5,TEST_FAIL
+@@ -1129,32 +1129,32 @@ lwd_swd_test_init:
+ lwd_lwud_test:
+       sw x8,8(x4)
+       sw x9,0xc(x4)
+-      lwd x5,x6,(x4),1,3
+-      lwud x12,x13,(x4),1,3
++      th.lwd x5,x6,(x4),1,3
++      th.lwud x12,x13,(x4),1,3
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       bne x10,x12,TEST_FAIL
+       bne x11,x13,TEST_FAIL
+       sw x8,0(x4)
+       sw x9,4(x4)
+-      lwd x5,x6,(x4),0,3
+-      lwud x12,x13,(x4),0,3
++      th.lwd x5,x6,(x4),0,3
++      th.lwud x12,x13,(x4),0,3
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       bne x10,x12,TEST_FAIL
+       bne x11,x13,TEST_FAIL
+       sw x8,0x18(x4)
+       sw x9,0x1c(x4)
+-      lwd x5,x6,(x4),3,3
+-      lwd x5,x6,(x4),3,3
++      th.lwd x5,x6,(x4),3,3
++      th.lwd x5,x6,(x4),3,3
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       bne x10,x12,TEST_FAIL
+       bne x11,x13,TEST_FAIL
+       sw x8,0x10(x4)
+       sw x9,0x14(x4)
+-      lwd x5,x6,(x4),2,3
+-      lwud x12,x13,(x4),2,3
++      th.lwd x5,x6,(x4),2,3
++      th.lwud x12,x13,(x4),2,3
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+       bne x10,x12,TEST_FAIL
+@@ -1162,22 +1162,22 @@ lwd_lwud_test:
+ .global swd_test
+ swd_test:
+       addi x4,x4,0x80
+-      swd x8,x9,(x4),2,3
++      th.swd x8,x9,(x4),2,3
+       lw x5,0x10(x4)
+       lw x6,0x14(x4)
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+-      swd x8,x9,(x4),3,3
++      th.swd x8,x9,(x4),3,3
+       lw x5,0x18(x4)
+       lw x6,0x1c(x4)
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+-      swd x8,x9,(x4),0,3
++      th.swd x8,x9,(x4),0,3
+       lw x5,0(x4)
+       lw x6,4(x4)
+       bne x8,x5,TEST_FAIL
+       bne x9,x6,TEST_FAIL
+-      swd x8,x9,(x4),1,3
++      th.swd x8,x9,(x4),1,3
+       lw x5,8(x4)
+       lw x6,0xc(x4)
+       bne x8,x5,TEST_FAIL
+@@ -1192,14 +1192,14 @@ swd_test:
+       li x11,0xffffffff12345678
+ .global FLRW1
+ FLRW1:
+-      flrw f15, x3,x0,0
++      th.flrw f15, x3,x0,0
+       fmv.x.d x15, f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20008
+       li x11, 0xffffffff87654321
+ .global FLRW2
+ FLRW2:
+-      flrw f15, x3, x0,3
++      th.flrw f15, x3, x0,3
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20018
+@@ -1207,7 +1207,7 @@ FLRW2:
+       li x11, 0xffffffffffffffff
+ .global FLRW3
+ FLRW3:
+-      flrw f15, x3,x4,3
++      th.flrw f15, x3,x4,3
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+@@ -1215,7 +1215,7 @@ FLRW3:
+       li x11,0xffffffff12345678
+ .global FLURW1
+ FLURW1:
+-      flurw f15, x3,x4,0
++      th.flurw f15, x3,x4,0
+       fmv.x.d x15, f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+@@ -1223,7 +1223,7 @@ FLURW1:
+       li x4, 0xff00000001
+ .global FLURW2
+ FLURW2:
+-      flurw f15, x3, x4,3
++      th.flurw f15, x3, x4,3
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+@@ -1231,21 +1231,21 @@ FLURW2:
+       li x11, 0xffffffffffffffff
+ .global FLURW3
+ FLURW3:
+-      flurw f15, x3,x4,3
++      th.flurw f15, x3,x4,3
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+       li x11,0xf12345678
+ .global FLRD1
+ FLRD1:
+-      flrd f15, x3,x0,0
++      th.flrd f15, x3,x0,0
+       fmv.x.d x15, f15
+       bne x15,x11, TEST_FAIL
+       li x11, 0x87654321
+       li x4, 0x2
+ .global FLRD2
+ FLRD2:
+-      flrd f15, x3, x4,2
++      th.flrd f15, x3, x4,2
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20018
+@@ -1253,7 +1253,7 @@ FLRD2:
+       li x11, 0xffffffff
+ .global FLRD3
+ FLRD3:
+-      flrd f15, x3,x4,3
++      th.flrd f15, x3,x4,3
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+@@ -1261,7 +1261,7 @@ FLRD3:
+       li x11,0xf12345678
+ .global FLURD1
+ FLURD1:
+-      flurd f15, x3,x4,0
++      th.flurd f15, x3,x4,0
+       fmv.x.d x15, f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+@@ -1269,7 +1269,7 @@ FLURD1:
+       li x11, 0x87654321
+ .global FLURD2
+ FLURD2:
+-      flurd f15, x3, x4,1
++      th.flurd f15, x3, x4,1
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+@@ -1277,7 +1277,7 @@ FLURD2:
+       li x11, 0xffffffff
+ .global FLURD3
+ FLURD3:
+-      flurd f15, x3,x4,3
++      th.flurd f15, x3,x4,3
+       fmv.x.d x15,f15
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20000
+@@ -1287,7 +1287,7 @@ FLURD3:
+       sd x10, 0(x3)
+ .global FSRW1
+ FSRW1:
+-      fsrw f10, x3,x0,0
++      th.fsrw f10, x3,x0,0
+       ld x15, 0(x3)
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20010
+@@ -1299,7 +1299,7 @@ FSRW1:
+       li x11, 0x1234567812345678
+ .global FSRW2
+ FSRW2:
+-      fsrw f10, x3,x4,3
++      th.fsrw f10, x3,x4,3
+       li x3,0x20010
+       ld x15, 0(x3)
+       bne x15,x11,TEST_FAIL
+@@ -1311,7 +1311,7 @@ FSRW2:
+       sd x10, 0(x3)
+ .global FSURW1
+ FSURW1:
+-      fsurw f10, x3,x4,0
++      th.fsurw f10, x3,x4,0
+       ld x15, 0(x3)
+       bne x15,x11, TEST_FAIL
+       li x3, 0x20010
+@@ -1323,7 +1323,7 @@ FSURW1:
+       li x11, 0x1234567812345678
+ .global FSURW2
+ FSURW2:
+-      fsurw f10, x3,x4,3
++      th.fsurw f10, x3,x4,3
+       li x3,0x20010
+       ld x15, 0(x3)
+       bne x15,x11,TEST_FAIL
+@@ -1333,7 +1333,7 @@ FSURW2:
+       FPUMOVD f10, 0x0, x10
+ .global FSRD1
+ FSRD1:
+-      fsrd f10, x3,x0,0
++      th.fsrd f10, x3,x0,0
+       ld x10, 0(x3)
+       bne x10, x0 ,TEST_FAIL
+       li x3, 0x20010
+@@ -1344,7 +1344,7 @@ FSRD1:
+       FPUMOVD f10, 0x0, x10
+ .global FSRD2
+ FSRD2:
+-      fsrd f10, x3,x4,3
++      th.fsrd f10, x3,x4,3
+       ld x10, 0(x3)
+       bne x10, x0 ,TEST_FAIL
+       li x3, 0x20000
+@@ -1354,7 +1354,7 @@ FSRD2:
+       li x4,0xfff00000000
+ .global FSURD1
+ FSURD1:
+-      fsurd f10, x3,x4,0
++      th.fsurd f10, x3,x4,0
+       ld x10, 0(x3)
+       bne x10, x0 ,TEST_FAIL
+       li x3, 0x20010
+@@ -1365,7 +1365,7 @@ FSURD1:
+       FPUMOVD f10, 0x0, x10
+ .global FSURD2
+ FSURD2:
+-      fsurd f10, x3,x4,1
++      th.fsurd f10, x3,x4,1
+       li x3, 0x20010
+       ld x10, 0(x3)
+       bne x10, x0 ,TEST_FAIL
+diff --git a/smart_run/tests/lib/core_lsu.s b/smart_run/tests/lib/core_lsu.s
+index b9a6eaa..24daa94 100644
+--- a/smart_run/tests/lib/core_lsu.s
++++ b/smart_run/tests/lib/core_lsu.s
+@@ -85,10 +85,10 @@ limitations under the License.
+ .macro DATA_CACHE_INV
+   #backup regs
+   csrsi mcor,0x12
+- # dcache.cva x2
++ # th.dcache.cva x2
+  # addi    x2, x2, -4
+  # st.w   x7, (x2)
+- # dcache.cva x2
++ # th.dcache.cva x2
+  # 
+  # mfcr   x7, cr17
+  # bclri  x7, 0 
+diff --git a/smart_run/tests/lib/crt0.s b/smart_run/tests/lib/crt0.s
+index 8c553f5..9da30d9 100644
+--- a/smart_run/tests/lib/crt0.s
++++ b/smart_run/tests/lib/crt0.s
+@@ -135,7 +135,7 @@ __exit:
+   addi x1,x0,0x5a
+   addi x2,x0,0x6b
+   addi x3,x0,0x7c
+-  sync
++  th.sync
+   li   x3, 0x444333222
+   add x4,x0,x3
+ #
+@@ -144,7 +144,7 @@ __fail:
+   addi x10,x0,0x0
+   addi x1,x0,0x2c
+   addi x2,x0,0x3b
+-  sync
++  th.sync
+   li x3,0x2382348720
+ 
+ .section .text

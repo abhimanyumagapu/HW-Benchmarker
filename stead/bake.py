@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import container
@@ -45,6 +45,7 @@ class BakeSpec:
     out_root: Path
     gold_root: Path
     suite: str = ""  # regex over test names for `auto`; empty = whole suite
+    keep: list[str] = field(default_factory=list)  # run files shipped beside the log; repo.yaml `keep`
 
 
 @dataclass
@@ -112,17 +113,13 @@ def _runs_auto(spec: BakeSpec, cid: str, work: Path) -> Runs:
     return Runs(test, also, clean, buggy)
 
 
-LOG_MAX = 20_000_000  # bytes; a trace bigger than this stays out of the case
-
-
-def _keep(res: RunResult, work: Path, name: str) -> str | None:
-    """Copy a run's sim.log as <name>.log, every other log it wrote by its own name, and its dump;
-    return the dump's relative path."""
+def _keep(res: RunResult, work: Path, name: str, keep: list[str]) -> str | None:
+    """Copy a run's sim.log as <name>.log, the run files repo.yaml names in `keep`, and its dump;
+    return the dump's relative path. Everything else the run wrote stays out of the case."""
     shutil.copy(res.log, work / "logs" / f"{name}.log")
-    for f in sorted(res.log.parent.iterdir()):
-        small = f.is_file() and f.suffix != ".elf" and f.stat().st_size <= LOG_MAX
-        if small and f not in (res.log, res.dump):
-            shutil.copy(f, work / "logs" / f.name)
+    for f in keep:
+        if (res.log.parent / f).is_file():
+            shutil.copy(res.log.parent / f, work / "logs" / f)
     if res.dump is None:
         return None
     rel = f"waves/{name}{res.dump.suffix}"
@@ -167,8 +164,8 @@ def bake(spec: BakeSpec) -> Path:
         (work / "waves").mkdir()
         runs = _runs_auto(spec, cid, work) if spec.test == "auto" else _runs_fixed(spec, cid, work)
         if KEEP_PASS:
-            _keep(runs.clean, work, "pass")
-        dump_rel = _keep(runs.buggy, work, "fail")
+            _keep(runs.clean, work, "pass", spec.keep)
+        dump_rel = _keep(runs.buggy, work, "fail", spec.keep)
         stead, note = _resolve_stead(runs.buggy, dump_rel)
         for d in ("run_pass", "run_fail", "suite"):
             shutil.rmtree(work / d, ignore_errors=True)
@@ -220,8 +217,8 @@ unmodified commit.{also} Find the cause.
 
 - `tree/` — the full buggy source tree, design docs included. The bug may be in the DUT
   ({c.dut_paths}) or in the testbench ({c.checker_paths}); say which.
-- `logs/fail.log` — the failing run's verdict, and next to it every other log that run wrote
-  (traces, console, bus logs). `tools/` — scripts for them; the skill says what each does.
+- `logs/fail.log` — everything the failing run printed, the verdict line last; next to it the
+  run's trace files, if the core has any. `tools/` — scripts for them; the skill says what each does.
 - `waves/` — the failing run's dump (`{c.dump or "none"}`).
 
 ## STEAD

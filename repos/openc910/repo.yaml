@@ -1,0 +1,6 @@
+url: https://github.com/XUANTIE-RV/openc910.git
+commit: b91c90914c19f114d35c8f6b73408eb241ed847c
+validated_on: verilator-5.050
+dut_paths: [C910_RTL_FACTORY/**]
+checker_paths: [smart_run/**]
+jobs: 4

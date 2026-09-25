@@ -89,6 +89,7 @@ def load_spec(spec_path: Path) -> BakeSpec:
         dut_paths=cfg["dut_paths"],
         checker_paths=cfg["checker_paths"],
         validated_on=cfg["validated_on"],
+        keep=cfg.get("keep", []),
         gold=Gold(file=g["file"], start=g["start"], end=g["end"], klass=g.get("class", "")),
         bug_patch=(spec_path.parent / d.pop("bug_patch")).read_text(),
         out_root=CASES,
