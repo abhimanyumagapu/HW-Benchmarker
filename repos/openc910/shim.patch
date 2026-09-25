@@ -1,8 +1,34 @@
+diff --git a/smart_run/logical/apb/apb.v b/smart_run/logical/apb/apb.v
+index d5f3a4b..de049fc 100644
+--- a/smart_run/logical/apb/apb.v
++++ b/smart_run/logical/apb/apb.v
+@@ -261,7 +261,7 @@ timer  x_stimer (
+   .timer_int          (stim_intc_int[3:0])
+ );
+ 
+-clk_gen  x_clk_gen (
++clk_gen #(.CLK_RATIO(3'd2)) x_clk_gen (  // STEAD: bus at half the core clock, so the ratio path carries every transfer
+   .clk_en             (clk_en            ),
+   .clkrst_b           (pad_cpu_rst_b     ),
+   .i_pad_clk          (i_pad_clk         ),
 diff --git a/smart_run/logical/tb/tb_verilator.v b/smart_run/logical/tb/tb_verilator.v
-index ab4fee5..c2136bf 100644
+index ab4fee5..0c89696 100644
 --- a/smart_run/logical/tb/tb_verilator.v
 +++ b/smart_run/logical/tb/tb_verilator.v
-@@ -434,4 +434,32 @@ module top(
+@@ -217,9 +217,11 @@ module top(
+   end
+ 
+   integer clkCnt;
++  integer stead_max_cycles;  // STEAD: +max_cycles=<n> caps the run below MAX_RUN_TIME
++  initial if (!$value$plusargs("max_cycles=%d", stead_max_cycles)) stead_max_cycles = `MAX_RUN_TIME;
+   always@(posedge clk) begin
+     clkCnt = clkCnt + 1;
+-    if(clkCnt > `MAX_RUN_TIME) begin
++    if(clkCnt > stead_max_cycles) begin
+       $display("**********************************************");
+       $display("*   meeting max simulation time, stop!       *");
+       $display("**********************************************");
+@@ -434,4 +436,32 @@ module top(
    //if(virtual_counter[31:0]> 32'h3000000) $finish;
    //end
    

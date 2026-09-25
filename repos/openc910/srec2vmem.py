@@ -6,9 +6,10 @@ word offset from the file's lowest address. Gaps are zero.
 """
 
 import sys
+from pathlib import Path
 
 data = {}
-for line in open(sys.argv[1]):
+for line in Path(sys.argv[1]).read_text().splitlines():
     kind = line[:2]
     if kind not in ("S1", "S2", "S3"):
         continue
@@ -18,7 +19,7 @@ for line in open(sys.argv[1]):
     body = bytes.fromhex(line[4 + width : 4 + 2 * count - 2])
     for i, b in enumerate(body):
         data[addr + i] = b
-with open(sys.argv[2], "w") as out:
+with Path(sys.argv[2]).open("w") as out:
     if data:
         base, end = min(data), max(data) + 1
         for row in range(0, end - base, 16):

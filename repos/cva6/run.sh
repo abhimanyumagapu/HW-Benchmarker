@@ -3,13 +3,15 @@
 #   run.sh build <tree>                                      make verilate (cv64a6_imafdc_sv39, Spike tandem, FST)
 #   run.sh run   <tree> <rv64ui-p-xor> <out> [--dump=on|off] compile the riscv-tests p-test, run it in tandem
 #   run.sh suite <tree> <out> [<regex>]                      the 124 rv64 p-tests (~25 s each); pass a regex for a subset
-# The shimmed spike.sv (shim.patch) prints the STEAD FAIL line on the first rd mismatch.
+# The shimmed spike.sv (shim.patch) prints the STEAD FAIL line on the first rd mismatch; a hang (+time_out),
+# a fired assertion (--assert, shim.patch) or a run diverged past the mismatch budget ends in a NOTE line, exit 1.
 set -u
 . "$(dirname "$0")/../env.sh"
 export RISCV=$STEAD_TOOLS/riscv-gcc VERILATOR_INSTALL_DIR=$STEAD_TOOLS/verilator NUM_JOBS=8 SPIKE_TANDEM=1
 ulimit -s unlimited          # the tandem's RVFI structs overflow the default 8 MB stack
 verb=$1; tree=$(cd "$2" && pwd)
 SIM=$tree/work-ver/Variane_testharness
+TIME_OUT=300000   # cycles per run, 4x the longest clean test; the tracer then ends the run as FAILED
 case $verb in
   build)
     cd "$tree" || exit 2
@@ -31,9 +33,18 @@ case $verb in
     tohost=$(riscv64-unknown-elf-nm -B "$elf" | grep -w tohost | cut -d' ' -f1)
     plus=""; [ "$dump" = --dump=on ] && plus="+dump_file=$out/dump.fst"
     ( cd "$out" && "$SIM" $plus "$elf" +debug_disable=1 +UVM_VERBOSITY=UVM_NONE ++"$elf" +elf_file="$elf" \
-        +core_name=cv64a6_imafdc_sv39 +tohost_addr="$tohost" > sim.log 2>&1 )
+        +core_name=cv64a6_imafdc_sv39 +tohost_addr="$tohost" +time_out=$TIME_OUT > sim.log 2>&1 )
     grep -qE "^(FAIL|NOTE) " "$out/sim.log" && exit 1
     grep -q "SUCCESS" "$out/sim.log" && exit 0
+    if grep -q "tohost=2147483647" "$out/sim.log"; then
+      echo "NOTE  test=$test  hang  (no tohost inside $TIME_OUT cycles)" >> "$out/sim.log"; exit 1
+    fi
+    if grep "Assertion failed in" "$out/sim.log" | grep -qv uvm_report_fatal; then
+      echo "NOTE  test=$test  assertion  $(grep "Assertion failed in" "$out/sim.log" | grep -m1 -v uvm_report_fatal)" >> "$out/sim.log"; exit 1
+    fi
+    if grep -q "uvm_report_fatal" "$out/sim.log"; then
+      echo "NOTE  test=$test  diverged  (100 mismatches against spike, none on the retire port)" >> "$out/sim.log"; exit 1
+    fi
     grep -q "FAILED" "$out/sim.log" && exit 1
     exit 3 ;;
   suite)

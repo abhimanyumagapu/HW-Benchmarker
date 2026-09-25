@@ -1,8 +1,8 @@
 #!/bin/bash
 # openc910 recipe. Contract: see stead/recipe.py.
-#   run.sh build <tree>                                   the smart_run Verilator TB (FST) and the four ISA tests
-#   run.sh run   <tree> <test> <out> [--dump=on|off]      one test: ISA_IMAC, ISA_FP, ISA_AMO or ISA_THEAD
-#   run.sh suite <tree> <out> [<regex>]                   the four
+#   run.sh build <tree>                                   the smart_run Verilator TB (FST) and the five tests
+#   run.sh run   <tree> <test> <out> [--dump=on|off]      one test: ISA_IMAC, ISA_FP, ISA_AMO, ISA_THEAD or exception
+#   run.sh suite <tree> <out> [<regex>]                   the five
 # The other smart_run cases have no value check (or no stimulus in the Verilator TB) and are not run.
 # openc910 targets Verilator 4 and T-Head's GCC 8. For Verilator 5.050 and GCC 15: -Os dropped,
 # --no-timing (Verilator 4 ignored delays too), the timescale overridden so $time is the dump's time,
@@ -15,7 +15,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 verb=$1; tree=$(cd "$2" && pwd)
 S=$tree/smart_run
 SIM=$S/work/obj_dir/Vtop
-TESTS="ISA_IMAC ISA_FP ISA_AMO ISA_THEAD"
+TESTS="ISA_IMAC ISA_FP ISA_AMO ISA_THEAD exception"
+MAX_CYCLES=100000   # per run, 4x the longest clean test; a livelock ends here, a deadlock at the TB's 50k idle cycles
 export CODE_BASE_PATH=$tree/C910_RTL_FACTORY TOOL_EXTENSION=$STEAD_TOOLS/bin
 VFLAGS="-x-assign 0 -Wno-fatal --no-timing --threads 4 --trace-fst --timescale-override 1ns/1ns"
 MARCH=rv64imafdc_zicsr_zifencei_zfh_xtheadba_xtheadbb_xtheadbs_xtheadcmo_xtheadcondmov
@@ -58,8 +59,14 @@ case $verb in
         && make -j4 -C "$S/work/obj_dir" -f ../Makefile_obj; } > "$tree/build.log" 2>&1
     [ -x "$SIM" ] || { grep -m3 -E "%Error|error:" "$tree/build.log" || tail -3 "$tree/build.log"; exit 2; }
     for t in $TESTS; do
-      make -s -C "$S" SHELL=/bin/bash buildcase CASE=$t FLAG_MARCH="$FLAG_MARCH" \
-        CONVERT="python3 $HERE/srec2vmem.py" >> "$tree/build.log" 2>&1
+      if [ "$t" = exception ]; then   # not in smart_cfg.mk's case list: its ISA_*_build steps by hand
+        make -s -C "$S" cleancase && cp "$S"/tests/cases/exception/* "$S/work/" \
+          && find "$S/tests/lib/" -maxdepth 1 -type f -exec cp {} "$S/work/" \; \
+          && make -s -C "$S/work" all CPU_ARCH_FLAG_0=c910 ENDIAN_MODE=little-endian CASENAME=exception \
+               FILE=ct_expt_smoke FLAG_MARCH="$FLAG_MARCH" CONVERT="python3 $HERE/srec2vmem.py"
+      else
+        make -s -C "$S" SHELL=/bin/bash buildcase CASE=$t FLAG_MARCH="$FLAG_MARCH" CONVERT="python3 $HERE/srec2vmem.py"
+      fi >> "$tree/build.log" 2>&1
       mkdir -p "$S/cases/$t" && cp "$S"/work/inst.pat "$S"/work/data.pat "$S"/work/*.elf "$S/cases/$t/" \
         || { echo "test $t did not build: $S/work/${t}_build.case.log"; exit 2; }
     done
@@ -70,8 +77,11 @@ case $verb in
     [ -f "$S/cases/$test/inst.pat" ] || { echo "no such test: $test" > "$out/sim.log"; exit 2; }
     cp "$S/cases/$test/inst.pat" "$S/cases/$test/data.pat" "$out/"
     plus="+trace_file=$out/trace.txt"; [ "$dump" = --dump=on ] && plus="$plus +dump_file=$out/dump.fst"
-    ( cd "$out" && "$SIM" $plus > stdout 2>&1 )
+    ( cd "$out" && "$SIM" $plus +max_cycles=$MAX_CYCLES > stdout 2>&1 )
     grep -q "simulation finished successfully" "$out/stdout" && { cp "$out/stdout" "$out/sim.log"; exit 0; }
+    if grep -qE "no instructions retired|meeting max simulation time" "$out/stdout"; then
+      { cat "$out/stdout"; echo "NOTE  test=$test  hang  (no test end inside $MAX_CYCLES cycles)"; } > "$out/sim.log"; exit 1
+    fi
     # anything but a check jumping to __fail (watchdog, timeout, crash) is not a verdict
     grep -q "simulation finished with error" "$out/stdout" || { cp "$out/stdout" "$out/sim.log"; exit 3; }
     { cat "$out/stdout"; python3 "$HERE/stead_line.py" "$test" "$S/cases/$test"/*.elf "$out/trace.txt" "$out/dump.fst"; } \

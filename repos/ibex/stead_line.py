@@ -72,7 +72,12 @@ def main(test, ref_path, stdout, trace, dump):
             if st and (best is None or st[0] < best[0][0]):
                 best = (st, e)
     if best is None:
-        i = next(i for i, (e, a) in enumerate(zip(ref, act, strict=False)) if e != a)
+        i = next((i for i, (e, a) in enumerate(zip(ref, act, strict=False)) if e != a), None)
+        if i is None:
+            print(
+                f"NOTE  test={test}  signature length differs: {len(ref)} words expected, {len(act)} printed"
+            )
+            return
         print(
             f"NOTE  test={test}  signature word addr=0x{base + 4 * i:08x}  expected=0x{ref[i]:08x}  actual=0x{act[i]:08x}  (never stored)"
         )

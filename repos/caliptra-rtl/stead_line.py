@@ -3,7 +3,8 @@
 
 usage: stead_line.py <rundir> <test> <dump>   (rundir holds console.log and lsu_master_ahb_trace.log)
 
-E and A come from the firmware's own "Expected data: 0x.." / "Actual   data: 0x.." console prints.
+E and A come from the firmware's own console prints: "Expected data: 0x.." / "Actual   data: 0x..",
+"EXP: 0x.. RECVD: 0x..", "actual (0x..) expected (0x..)" or "got=0x.. want=0x..", whichever comes first.
 S and T come from the LSU AHB trace (written with +CLP_BUS_LOGS): the last 32-bit read whose data
 equals A before the print. Prints NOTE when the firmware gave no E/A pair or the read was not found.
 """
@@ -19,6 +20,11 @@ LSU = re.compile(
     r"0x([0-9a-f]{8})_([0-9a-f]{8}) ([01]) ([01])"
 )
 CON = re.compile(r"(Expected|Actual)\s+data: 0x([0-9a-fA-F]+)")
+PAIRS = (  # one line holding both, (pattern, expected group, actual group)
+    (re.compile(r"EXP: 0x([0-9a-fA-F]+) RECVD: 0x([0-9a-fA-F]+)"), 1, 2),
+    (re.compile(r"actual \(0x([0-9a-fA-F]+)\) expected \(0x([0-9a-fA-F]+)\)"), 2, 1),
+    (re.compile(r"got=0x([0-9a-fA-F]+) want=0x([0-9a-fA-F]+)"), 2, 1),
+)
 
 
 def dump_time(n):
@@ -28,11 +34,18 @@ def dump_time(n):
 
 def expected_actual(console):
     exp = act = None
-    for m in CON.finditer(Path(console).read_text(errors="replace")):
-        if m.group(1) == "Expected" and exp is None:
+    for line in Path(console).read_text(errors="replace").splitlines():
+        for pat, e, a in PAIRS:
+            m = pat.search(line)
+            if m:
+                return int(m.group(e), 16), int(m.group(a), 16)
+        m = CON.search(line)
+        if m and m.group(1) == "Expected" and exp is None:
             exp = int(m.group(2), 16)
-        if m.group(1) == "Actual" and act is None:
+        if m and m.group(1) == "Actual" and act is None:
             act = int(m.group(2), 16)
+        if exp is not None and act is not None:
+            return exp, act
     return exp, act
 
 

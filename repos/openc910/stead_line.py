@@ -21,6 +21,7 @@ condition is "not equal" has one expected value; any other prints a NOTE.
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 BJU = (
     "TOP.top.x_soc.x_cpu_sub_system_axi.x_rv_integration_platform.x_cpu_top"
@@ -37,7 +38,9 @@ def disassemble(elf):
     """pc -> (mnemonic, [operands]), canonical forms."""
     out = subprocess.run(
         [f"{TOOL}objdump", "-d", "-M", "numeric,no-aliases", elf],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
     code = {}
     for line in out.splitlines():
@@ -51,8 +54,11 @@ def disassemble(elf):
 def symbols(elf):
     """Code labels: name -> address."""
     out = subprocess.run([f"{TOOL}nm", elf], capture_output=True, text=True, check=True).stdout
-    return {f[2]: int(f[0], 16) for f in (line.split() for line in out.splitlines())
-            if len(f) == 3 and f[1] in "tT"}
+    return {
+        f[2]: int(f[0], 16)
+        for f in (line.split() for line in out.splitlines())
+        if len(f) == 3 and f[1] in "tT"
+    }
 
 
 def section(labels, pc):
@@ -74,7 +80,7 @@ def written(mnemonic, ops):
 
 def trace(path):
     retired, bju = [], []
-    for line in open(path):
+    for line in Path(path).read_text().splitlines():
         f = line.split()
         if f[0] == "R":
             retired.append((int(f[1]), int(f[2]), int(f[3], 16), int(f[4])))

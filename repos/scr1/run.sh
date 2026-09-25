@@ -3,18 +3,20 @@
 #   run.sh build <tree>                                   builds the Verilator TB (AXI, FST) and every test hex
 #   run.sh run   <tree> <test.hex> <out> [--dump=on|off]  runs one test; sim.log + dump.fst in <out>
 #   run.sh suite <tree> <out> [<regex>]                    every hex in the build's test_info (221)
-# The TB (shimmed, see shim.patch) prints the STEAD FAIL line itself and a "Summary: n/1 tests passed".
+# The TB (shimmed, see shim.patch) prints the STEAD FAIL line itself and a "Summary: n/1 tests passed";
+# a hang (TIMEOUT) or a fired SVA property (--assert) ends in a NOTE line and exit 1.
 set -u
 . "$(dirname "$0")/../env.sh"
 verb=$1; tree=$(cd "$2" && pwd)
 B=$tree/build/verilator_wf_AXI_MAX_imc_IPIC_1_TCM_1_VIRQ_1_TRACE_1
 SIM=$B/verilator/Vscr1_top_tb_axi
+TIMEOUT=400000   # cycles per test, 4x the longest clean one; a hang prints "Error: TIMEOUT" and fails
 case $verb in
   build)
-    # run_verilator_wf is the only target that builds both the sim and the test hexes; it also runs
-    # the suite once (~1 min), which we ignore.
-    make -C "$tree" BUS=AXI TRACE=1 run_verilator_wf TARGETS="riscv_isa riscv_compliance riscv_arch isr_sample" \
-      > "$tree/build.log" 2>&1
+    # build_verilator_wf (shim.patch) is run_verilator_wf without the suite run; --assert keeps the
+    # RTL's own SVA properties, silent on a clean tree
+    make -C "$tree" BUS=AXI TRACE=1 current_goal=verilator_wf SIM_BUILD_OPTS=--assert build_verilator_wf \
+      TARGETS="riscv_isa riscv_compliance riscv_arch isr_sample" > "$tree/build.log" 2>&1
     [ -x "$SIM" ] || { grep -m3 -E "%Error|error:" "$tree/build.log"; exit 2; }
     exit 0 ;;
   run)
@@ -22,10 +24,16 @@ case $verb in
     [ -x "$SIM" ] || { echo "not built" > "$out/sim.log"; exit 2; }
     [ -f "$B/$test" ] || { echo "no such test hex: $test" > "$out/sim.log"; exit 2; }
     echo "$test" > "$out/test_info"
-    plus=""; [ "$dump" = --dump=on ] && plus="+dump_file=$out/dump.fst"
+    plus="+timeout=$TIMEOUT"; [ "$dump" = --dump=on ] && plus="$plus +dump_file=$out/dump.fst"
     ( cd "$B" && ./verilator/Vscr1_top_tb_axi +test_info="$out/test_info" +test_results="$out/results.txt" $plus ) \
       2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$out/sim.log"
-    grep -q "^# Summary: " "$out/sim.log" || exit 3          # no summary: the sim died or hung
+    if grep -q "Assertion failed in" "$out/sim.log"; then
+      echo "NOTE  test=$test  assertion  $(grep -m1 "Assertion failed in" "$out/sim.log")" >> "$out/sim.log"; exit 1
+    fi
+    if grep -q "Error: TIMEOUT" "$out/sim.log"; then
+      echo "NOTE  test=$test  hang  (no test end inside $TIMEOUT cycles)" >> "$out/sim.log"; exit 1
+    fi
+    grep -q "^# Summary: " "$out/sim.log" || exit 3          # no summary: the sim died
     grep -q "^# Summary: 1/1" "$out/sim.log" && exit 0
     exit 1 ;;
   suite)

@@ -1,5 +1,17 @@
+diff --git a/Makefile b/Makefile
+index eff5f79..d0d28e5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -684,6 +684,7 @@ verilate_command := $(verilator) --no-timing verilator_config.vlt
+                     -Werror-PINMISSING                                                                           \
+                     -Werror-IMPLICIT                                                                             \
+                     -Wno-fatal                                                                                   \
++                    --assert                                                                                     \
+                     -Wno-PINCONNECTEMPTY                                                                         \
+                     -Wno-ASSIGNDLY                                                                               \
+                     -Wno-DECLFILENAME                                                                            \
 diff --git a/corev_apu/tb/ariane_tb.cpp b/corev_apu/tb/ariane_tb.cpp
-index 3653eaa51..62f89b041 100644
+index 3653eaa..62f89b0 100644
 --- a/corev_apu/tb/ariane_tb.cpp
 +++ b/corev_apu/tb/ariane_tb.cpp
 @@ -212,6 +212,10 @@ int main(int argc, char **argv) {
@@ -14,7 +26,7 @@ index 3653eaa51..62f89b041 100644
          else if (arg.substr(0, 12) == "+cycle-count")
            c = 'c';
 diff --git a/corev_apu/tb/common/spike.sv b/corev_apu/tb/common/spike.sv
-index 1d1fb9ced..d1ecb3f6a 100644
+index 1d1fb9c..d1ecb3f 100644
 --- a/corev_apu/tb/common/spike.sv
 +++ b/corev_apu/tb/common/spike.sv
 @@ -66,6 +66,29 @@ module spike #(
@@ -69,3 +81,16 @@ index 1d1fb9ced..d1ecb3f6a 100644
                      end_of_test_o = reference_model.halt;
                      sim_finished = reference_model.halt[0];
                  end
+diff --git a/verif/tb/core/custom_uvm_macros.svh b/verif/tb/core/custom_uvm_macros.svh
+index a813d60..625fd26 100644
+--- a/verif/tb/core/custom_uvm_macros.svh
++++ b/verif/tb/core/custom_uvm_macros.svh
+@@ -44,7 +44,7 @@ typedef enum
+     end
+ 
+ static longint sim_errors = 0;
+-parameter max_errors = 5;
++parameter max_errors = 100;  // STEAD: a diverged run reaches its verdict or the time_out instead of this fatal
+ 
+ static uvm_verbosity current_verbosity_level = UVM_LOW;
+ 

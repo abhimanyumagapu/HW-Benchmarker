@@ -1,0 +1,14 @@
+diff --git a/vendor/lowrisc_ip/ip/prim/rtl/prim_assert.sv b/vendor/lowrisc_ip/ip/prim/rtl/prim_assert.sv
+index 43030af..cfc117e 100644
+--- a/vendor/lowrisc_ip/ip/prim/rtl/prim_assert.sv
++++ b/vendor/lowrisc_ip/ip/prim/rtl/prim_assert.sv
+@@ -100,7 +100,8 @@
+ //  ASSUME_I:     Assume an immediate property
+ 
+ `ifdef VERILATOR
+- `include "prim_assert_dummy_macros.svh"
++ `include "prim_assert_standard_macros.svh"  // STEAD: the real properties, checked under --assert
++ `define INC_ASSERT
+ `elsif SYNTHESIS
+  `include "prim_assert_dummy_macros.svh"
+ `elsif YOSYS

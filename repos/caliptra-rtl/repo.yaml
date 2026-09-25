@@ -4,3 +4,4 @@ validated_on: verilator-5.050
 dut_paths: [src/*/rtl/**]
 checker_paths: [src/integration/tb/**, src/integration/test_suites/**, src/integration/stimulus/**, tools/**]
 jobs: 1
+keep: [console.log, lsu_master_ahb_trace.log]

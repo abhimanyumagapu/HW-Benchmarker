@@ -1,0 +1,13 @@
+diff --git a/tools/scripts/Makefile b/tools/scripts/Makefile
+index 204a0d4..3bdf70b 100644
+--- a/tools/scripts/Makefile
++++ b/tools/scripts/Makefile
+@@ -325,7 +325,7 @@ clean_fw:
+ 
+ verilator-build: $(TBFILES) $(INCLUDES_DIR)/defines.h $(TB_VERILATOR_SRCS) $(TBDIR)/../config/caliptra_top_tb.vf
+ 	set -eo pipefail; $(VERILATOR) $(TB_VERILATOR_SRCS) --cc -CFLAGS "$(CFLAGS)" \
+-	  +libext+.v+.sv +define+RV_OPENSOURCE \
++	  +libext+.v+.sv +define+RV_OPENSOURCE +define+CLP_ASSERT_ON --assert \
+ 	  --timescale 1ns/100ps \
+ 	  --timing \
+ 	  $(includes) \
