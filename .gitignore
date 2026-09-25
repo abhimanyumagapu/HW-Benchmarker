@@ -25,9 +25,3 @@ tests/fixtures/**/__pycache__/
 /*.md
 !/README.md
 *.html
-
-# Only the five seed specs are public. The rest of the corpus is the answer key and
-# lives in the private HW-Benchmarker-specs repository.
-specs/*/*
-!specs/*/*-0001.yaml
-!specs/*/*-0001.patch

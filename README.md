@@ -236,8 +236,9 @@ are sortable and case rows are filterable.
 from `specs/` and the container images, identically on every machine. The specs are the authoritative
 definition of the benchmark.
 
-Only the five seed specs are published here. A spec states the file, line window and class of its bug,
-so the full corpus is held in a private repository to keep it out of public training data.
+`specs/` is a submodule of the private corpus repository. A spec states the file, line window and
+class of its bug, so the corpus stays out of this public tree and out of model training data.
+`git submodule update --init specs` fetches it.
 
 ## Case contents
 
@@ -372,7 +373,7 @@ stead/agents/    one module per tool: claude_code (Claude Code headless), llm (l
 prompts/         the system prompt issued to every method
 skills/          the rtl-debug skill appended to it
 repos/           per-core recipe: run.sh, repo.yaml, shim.patch; the Dockerfile
-specs/           bug specs: YAML and patch; only the seed bugs are public
+specs/           bug specs, a submodule of the private corpus repository
 cases/           baked cases: logs, waveforms, case.yaml, README
 gold/            bug patch and gold window per case, never within a case
 results/         submissions, verdicts, transcripts, published page
