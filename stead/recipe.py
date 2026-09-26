@@ -80,6 +80,16 @@ def patch_applies(cid: str, patch: str) -> None:
         raise BuildError(f"patch does not apply: {p.stderr}")
 
 
+def recipe_id(cid: str) -> str:
+    """A hash of the recipe files in the container (run.sh, shim, scripts): what a case is baked
+    with, and what `check` compares. The image id is not it: a toolchain bump rebuilds every image
+    from the same recipe, and the cases must survive that with a check, not a re-bake."""
+    p = container.run(
+        cid, "sh", "-c", "find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum", cwd="/work/recipe"
+    )
+    return p.stdout.split()[0][:16]
+
+
 def build(cid: str) -> None:
     with timed(logger, "build"):
         p = container.run(cid, RUN_SH, "build", TREE)

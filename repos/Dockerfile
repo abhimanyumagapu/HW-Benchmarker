@@ -22,6 +22,16 @@ RUN find /opt/stead/tools -maxdepth 2 -type l | while read -r l; do \
     && sed -i 's|^#!/home/[^/]*/repos/tools|#!/opt/stead/tools|' /opt/stead/tools/venvs/*/bin/* 2>/dev/null; true
 ENV PATH=/opt/stead/tools/verilator/bin:/opt/stead/tools/bin:$PATH
 
+# A Verilator update, over the tools image already built:
+#   docker build -f repos/Dockerfile --target verilator --build-arg VERILATOR=v5.052 -t stead-tools repos
+# then `stead image` for every core and `stead check --all`; the cases keep, since the recipes did not change.
+FROM stead-tools AS verilator
+ARG VERILATOR
+RUN git clone -q --depth 1 -b "$VERILATOR" https://github.com/verilator/verilator /tmp/verilator \
+    && cd /tmp/verilator && autoconf && ./configure --prefix=/opt/stead/tools/verilator > /dev/null \
+    && make -j"$(nproc)" > /dev/null && rm -rf /opt/stead/tools/verilator && make install > /dev/null \
+    && rm -rf /tmp/verilator && verilator --version
+
 FROM stead-tools AS core
 COPY tree /work/tree
 COPY manifest /work/manifest

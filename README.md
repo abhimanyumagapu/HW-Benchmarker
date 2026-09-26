@@ -370,8 +370,12 @@ stead image <repo> ~/mirrors/<repo> [<commit>]
 stead push --all ghcr.io/abhimanyumagapu        # after docker login ghcr.io
 ```
 
-Modifying `run.sh` or the shim requires rebuilding the image, as each case records the image id it
-was baked from and `stead check` rejects any other. `repo.yaml` is read on the host, so `jobs` and
+A Verilator update is one build over the tools image (the `verilator` stage in `repos/Dockerfile`,
+`--build-arg VERILATOR=v5.052`), then `stead image` for every core and `stead check --all`.
+
+Modifying `run.sh` or the shim requires rebuilding the image and re-baking its cases: each case records
+a hash of the recipe it was baked with and `stead check` rejects an image holding any other. A rebuild
+from the same recipe, such as a toolchain update, keeps the cases; `stead check --all` re-validates them. `repo.yaml` is read on the host, so `jobs` and
 path declarations may change without a rebuild. Cores are never vendored; the image holds the tree,
 one image per distinct commit over a shared toolchain layer. `stead pull --all` retrieves every image
 referenced by a case.

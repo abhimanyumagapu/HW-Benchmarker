@@ -21,7 +21,7 @@ from . import patch as patchlib
 from .case import Case, matches_any
 from .fail import Stead, parse_log
 from .gold import Gold
-from .recipe import BuildError, RunResult, RunStatus, apply_patch, build, patch_applies, run, suite
+from .recipe import BuildError, RunResult, RunStatus, apply_patch, build, patch_applies, recipe_id, run, suite
 from .validate import validate_stead
 
 
@@ -176,6 +176,7 @@ def bake(spec: BakeSpec) -> Path:
             commit=spec.commit,
             image=spec.image,
             image_digest=container.image_id(spec.image),
+            recipe=recipe_id(cid),
             test=runs.test,
             dump=dump_rel,
             validated_on=spec.validated_on,

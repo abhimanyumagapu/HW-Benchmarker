@@ -2,17 +2,20 @@
 patches stay on their side of the DUT/checker line, and gold never ships with the case.
 A tree that leaves the image is exactly the manifest, bug applied, nothing else."""
 
+import subprocess
+
 import pytest
 import yaml
 
 from stead import container
 from stead.bake import BakeError, bake
 from stead.case import Case
+from stead.check import check
 from stead.gold import Gold
 from stead.image import apply_shim, build_core, export
 from stead.recipe import BuildError, RunStatus, build, run
 from stead.tree import materialize
-from tests.conftest import BUG_PATCH, FAKE, alu_patch, git, spec
+from tests.conftest import BUG_PATCH, COMMIT, FAKE, FIX, alu_patch, git, spec
 
 
 def test_bake_writes_case_with_stead_and_gold_outside_it(tmp_path):
@@ -122,3 +125,24 @@ def test_shim_applies_per_file_and_a_hunk_already_upstream_is_skipped(src_repo, 
     (tree / "dv" / "tb.sv").write_text("module tb;\n  something else entirely\nendmodule\n")
     with pytest.raises(ValueError, match="does not fit dv/tb.sv"):
         apply_shim(tree, shim)
+
+
+def test_check_accepts_a_rebuilt_image_and_rejects_a_changed_recipe(baked_case, tmp_path):
+    """A case is tied to its core commit and recipe, not to one image id: a toolchain bump rebuilds
+    every image, and the cases must survive it with a check, not a re-bake."""
+    gold = tmp_path / "gold" / "fake" / "fake-0001"
+    was = container.image_id(FAKE)
+    df = str(FIX / "fakerepo" / "Dockerfile")
+    subprocess.run(
+        ["docker", "build", "-q", "-f", df, "--label", "stead.rebuilt=1", "-t", FAKE, str(FIX)], check=True
+    )
+    assert container.image_id(FAKE) != was
+    assert check(baked_case, gold) == "ok"
+    subprocess.run(
+        ["docker", "build", "-q", "-f", df, "--build-arg", "RECIPE_EXTRA=changed", "-t", FAKE, str(FIX)],
+        check=True,
+    )
+    assert check(baked_case, gold).startswith("recipe")
+    subprocess.run(
+        ["docker", "tag", f"{FAKE}:{COMMIT[:7]}", FAKE], check=True
+    )  # the image the other tests expect

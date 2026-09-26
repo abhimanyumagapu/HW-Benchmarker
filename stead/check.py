@@ -1,5 +1,5 @@
-"""Re-validate a baked case against its image: the test passes warm, fails with the bug, and the
-STEAD record still agrees with the fail wave."""
+"""Re-validate a baked case against its image: the image holds the recipe the case was baked with,
+the test passes warm, fails with the bug, and the STEAD record still agrees with the fail wave."""
 
 from __future__ import annotations
 
@@ -9,15 +9,13 @@ from pathlib import Path
 
 from . import container
 from .case import Case
-from .recipe import RunStatus, apply_patch, build, run
+from .recipe import RunStatus, apply_patch, build, recipe_id, run
 from .validate import validate_stead
 
 
 def check(case_dir: Path, gold_dir: Path) -> str:
     """'ok', or the first rule the case breaks."""
     case = Case.load(case_dir / "case.yaml")
-    if case.image_digest != container.image_id(case.image):
-        return f"image {case.image} is not the one the case was baked from"
     if case.stead:
         ok, why = validate_stead(case.stead, case_dir / case.stead.dump)
         if not ok:
@@ -25,6 +23,8 @@ def check(case_dir: Path, gold_dir: Path) -> str:
     tmp = Path(tempfile.mkdtemp(prefix=f"stead-check-{case.id}-"))
     cid = container.start(case.image)
     try:
+        if recipe_id(cid) != case.recipe:
+            return f"recipe in {case.image} is not the one the case was baked with"
         if run(cid, case.test, tmp / "pass", dump=False).status is not RunStatus.PASS:
             return "clean tree does not PASS"
         apply_patch(cid, (gold_dir / "bug.patch").read_text())

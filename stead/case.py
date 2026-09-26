@@ -23,10 +23,11 @@ class Case:
     url: str
     commit: str
     image: str  # stead-<repo>:<commit>
-    image_digest: str  # the image id the case was baked from; same id, same tree
+    image_digest: str  # the image id the case was baked from, for provenance
     test: str
     dump: str | None  # path relative to case dir, or None
     validated_on: str  # e.g. verilator-5.050
+    recipe: str = ""  # recipe.recipe_id of the image; check accepts any image with this recipe and commit
     also_fails: list[str] = field(default_factory=list)
     dut_paths: list[str] = field(default_factory=list)
     checker_paths: list[str] = field(default_factory=list)
