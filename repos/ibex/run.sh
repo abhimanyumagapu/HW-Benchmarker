@@ -5,7 +5,8 @@
 #   run.sh suite <tree> <out> [<regex>]                        the compliance tests minus the known clean-tree fails
 # The testbench prints the STEAD line (shim.patch): it compares the signature with the reference as it
 # reads it, and traces a wrong byte to the store that last wrote it. Test ELFs come prebuilt from
-# $STEAD_TOOLS/riscv-compliance/work/<isa>/ (rv32mi and rv32si are built there by `build`). A hang
+# $STEAD_TOOLS/riscv-compliance/work/<isa>/; rv32mi and rv32si are not run (their suite dirs have no
+# compile target in the tools image). A hang
 # (--term-after-cycles) or a fired assertion (--assert, with the real SVA macros from shim.patch) is
 # exit 1. sim.log is only what the sim printed.
 set -u
@@ -32,12 +33,6 @@ case $verb in
     fusesoc --cores-root=. run --target=sim --setup --build lowrisc:ibex:ibex_riscv_compliance $OPTS \
       --verilator_options="-Wno-UNOPTFLAT --assert" > build.log 2>&1
     [ -x "$SIM" ] || { grep -m3 -E "%Error|error:" build.log; exit 2; }
-    # the machine- and supervisor-mode tests, which the tools image does not prebuild: same device as rv32imc
-    for isa in rv32mi rv32si; do
-      [ -d "$COMP/riscv-target/ibex/device/$isa" ] || cp -r "$COMP/riscv-target/ibex/device/rv32imc" "$COMP/riscv-target/ibex/device/$isa"
-      make -C "$COMP/riscv-test-suite/$isa" ROOTDIR="$COMP" TARGETDIR="$COMP/riscv-target" RISCV_TARGET=ibex RISCV_DEVICE=$isa \
-        RISCV_ISA=$isa RISCV_PREFIX=riscv32-unknown-elf- compile >> build.log 2>&1 || { echo "compliance $isa did not build"; exit 2; }
-    done
     exit 0 ;;
   run)
     isa=${3%%/*}; test=${3#*/}; out=$(mkdir -p "$4" && cd "$4" && pwd); dump=${5:---dump=on}
@@ -53,6 +48,6 @@ case $verb in
     grep -qE "^(FAIL|NOTE) " "$out/sim.log" && exit 1                           # the testbench's signature check
     exit 0 ;;
   suite)
-    for isa in rv32i rv32im rv32imc rv32Zicsr rv32Zifencei rv32mi rv32si; do for r in "$COMP/riscv-test-suite/$isa/references"/*.reference_output; do t=$(basename "$r" .reference_output); case " $KNOWN " in *" $t "*) ;; *) echo "$isa/$t";; esac; done; done | stead_suite "$0" "$tree" "$(mkdir -p "$3" && cd "$3" && pwd)" "${4:-.}" ;;
+    for isa in rv32i rv32im rv32imc rv32Zicsr rv32Zifencei; do for r in "$COMP/riscv-test-suite/$isa/references"/*.reference_output; do t=$(basename "$r" .reference_output); case " $KNOWN " in *" $t "*) ;; *) echo "$isa/$t";; esac; done; done | stead_suite "$0" "$tree" "$(mkdir -p "$3" && cd "$3" && pwd)" "${4:-.}" ;;
   *) echo "usage: run.sh build <tree> | run <tree> <test> <out> [--dump=on|off] | suite <tree> <out> [<regex>]" >&2; exit 64 ;;
 esac
