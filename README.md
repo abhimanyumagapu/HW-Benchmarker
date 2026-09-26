@@ -257,7 +257,7 @@ Each case directory, `cases/<repo>/<id>/`, contains:
 
 | File | Contents |
 |---|---|
-| `logs/fail.log` | Everything the failing run printed, the verdict line last; beside it the trace files `repo.yaml` lists under `keep` |
+| `logs/fail.log` | Everything the failing run printed, as the simulator printed it, the testbench's own `FAIL` line among it; beside it the trace files `repo.yaml` lists under `keep` |
 | `waves/fail.fst` | The waveform dump of that run |
 | `case.yaml` | Core, commit, image and image id, test, STEAD record, `also_fails`, DUT and checker paths |
 | `README.md` | The brief presented to the tool |

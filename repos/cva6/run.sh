@@ -4,7 +4,8 @@
 #   run.sh run   <tree> <rv64ui-p-xor> <out> [--dump=on|off] compile the riscv-tests p-test, run it in tandem
 #   run.sh suite <tree> <out> [<regex>]                      the 124 rv64 p-tests (~25 s each); pass a regex for a subset
 # The shimmed spike.sv (shim.patch) prints the STEAD FAIL line on the first rd mismatch; a hang (+time_out),
-# a fired assertion (--assert, shim.patch) or a run diverged past the mismatch budget ends in a NOTE line, exit 1.
+# a fired assertion (--assert, shim.patch) or a run diverged past the mismatch budget is exit 1. sim.log is only
+# what the sim printed.
 set -u
 . "$(dirname "$0")/../env.sh"
 export RISCV=$STEAD_TOOLS/riscv-gcc VERILATOR_INSTALL_DIR=$STEAD_TOOLS/verilator NUM_JOBS=8 SPIKE_TANDEM=1
@@ -34,18 +35,9 @@ case $verb in
     plus=""; [ "$dump" = --dump=on ] && plus="+dump_file=$out/dump.fst"
     ( cd "$out" && "$SIM" $plus "$elf" +debug_disable=1 +UVM_VERBOSITY=UVM_NONE ++"$elf" +elf_file="$elf" \
         +core_name=cv64a6_imafdc_sv39 +tohost_addr="$tohost" +time_out=$TIME_OUT > sim.log 2>&1 )
-    grep -qE "^(FAIL|NOTE) " "$out/sim.log" && exit 1
+    grep -qE "^(FAIL|NOTE) " "$out/sim.log" && exit 1   # the tandem's rd-value check (shim.patch)
     grep -q "SUCCESS" "$out/sim.log" && exit 0
-    if grep -q "tohost=2147483647" "$out/sim.log"; then
-      echo "NOTE  test=$test  hang  (no tohost inside $TIME_OUT cycles)" >> "$out/sim.log"; exit 1
-    fi
-    if grep "Assertion failed in" "$out/sim.log" | grep -qv uvm_report_fatal; then
-      echo "NOTE  test=$test  assertion  $(grep "Assertion failed in" "$out/sim.log" | grep -m1 -v uvm_report_fatal)" >> "$out/sim.log"; exit 1
-    fi
-    if grep -q "uvm_report_fatal" "$out/sim.log"; then
-      echo "NOTE  test=$test  diverged  (100 mismatches against spike, none on the retire port)" >> "$out/sim.log"; exit 1
-    fi
-    grep -q "FAILED" "$out/sim.log" && exit 1
+    grep -qE "tohost=2147483647|Assertion failed in|FAILED" "$out/sim.log" && exit 1   # a hang, an assertion, a failed check
     exit 3 ;;
   suite)
     grep -o "riscv-tests/isa/rv64[a-z]*/[a-z0-9_]*\.S" "$tree/verif/tests/testlist_riscv-tests-cv64a6_imafdc_sv39-p.yaml" | while read -r s; do echo "$(basename "$(dirname "$s")")-p-$(basename "$s" .S)"; done | stead_suite "$0" "$tree" "$(mkdir -p "$3" && cd "$3" && pwd)" "${4:-.}" ;;

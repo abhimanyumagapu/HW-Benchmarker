@@ -12,7 +12,7 @@ index d5f3a4b..de049fc 100644
    .clkrst_b           (pad_cpu_rst_b     ),
    .i_pad_clk          (i_pad_clk         ),
 diff --git a/smart_run/logical/tb/tb_verilator.v b/smart_run/logical/tb/tb_verilator.v
-index ab4fee5..0c89696 100644
+index ab4fee5..c491a25 100644
 --- a/smart_run/logical/tb/tb_verilator.v
 +++ b/smart_run/logical/tb/tb_verilator.v
 @@ -217,9 +217,11 @@ module top(
@@ -28,38 +28,236 @@ index ab4fee5..0c89696 100644
        $display("**********************************************");
        $display("*   meeting max simulation time, stop!       *");
        $display("**********************************************");
-@@ -434,4 +436,32 @@ module top(
+@@ -319,6 +321,7 @@ module top(
+      $display("**********************************************");
+      $display("*    simulation finished with error          *");
+      $display("**********************************************");
++     stead_report();  // STEAD
+      //#10;
+      FILE = $fopen("run_case.report","w");
+      $fwrite(FILE,"TEST FAIL");   
+@@ -434,4 +437,222 @@ module top(
    //if(virtual_counter[31:0]> 32'h3000000) $finish;
    //end
    
-+  // STEAD: the waveform and a trace for the fail line, each written only
-+  // when its plusarg names a file. With the timescale overridden to 1ns/1ns,
-+  // $time is the dump's timestamp.
-+  //   R <time> <slot> <pc> <iid>      an instruction retired
-+  //   B <time> <iid> <src0> <src1>    the branch unit took an instruction;
-+  //                                   time is $time-1, where the dump holds
-+  //                                   the operands this edge samples
++  // STEAD: the waveform, written when +dump_file names a file. With the
++  // timescale overridden to 1ns/1ns, $time is the dump's timestamp.
 +  `define STEAD_RT  `CPU_TOP.x_ct_top_0.x_ct_core.x_ct_rtu_top.x_ct_rtu_rob.x_ct_rtu_rob_rt
 +  `define STEAD_BJU `CPU_TOP.x_ct_top_0.x_ct_core.x_ct_iu_top.x_ct_iu_bju
-+  integer stead_fd;
 +  reg [8*512-1:0] stead_file;
 +  initial begin
-+    stead_fd = 0;
 +    if ($value$plusargs("dump_file=%s", stead_file)) begin
 +      $dumpfile(stead_file);
 +      $dumpvars;
 +    end
-+    if ($value$plusargs("trace_file=%s", stead_file))
-+      stead_fd = $fopen(stead_file, "w");
 +  end
-+  always @(posedge clk) if (stead_fd != 0) begin
-+    if (`tb_retire0) $fwrite(stead_fd, "R %0t 0 %h %0d\n", $time, `retire0_pc, `STEAD_RT.retire_inst0_iid);
-+    if (`tb_retire1) $fwrite(stead_fd, "R %0t 1 %h %0d\n", $time, `retire1_pc, `STEAD_RT.retire_inst1_iid);
-+    if (`tb_retire2) $fwrite(stead_fd, "R %0t 2 %h %0d\n", $time, `retire2_pc, `STEAD_RT.retire_inst2_iid);
-+    if (`STEAD_BJU.idu_iu_rf_bju_sel)
-+      $fwrite(stead_fd, "B %0t %0d %h %h\n", $time - 1, `STEAD_BJU.idu_iu_rf_pipe2_iid,
-+              `STEAD_BJU.idu_iu_rf_pipe2_src0, `STEAD_BJU.idu_iu_rf_pipe2_src1);
++
++  // STEAD: the fail record, printed by the testbench when a test fails. Every check in the ISA tests
++  // is a conditional branch to __fail, which holds none: the last conditional branch retired is the
++  // failing check. S is the branch unit's operand holding the computed value, T the time the dump
++  // holds it, A that value, E the other operand's. Which operand is E: the one whose last writer
++  // loaded a constant (lui, li, addi from x0, or a chain of them); when both or neither did, the
++  // one written last. Each retired entry is walked instruction by instruction from the program in
++  // memory (an entry folds up to three), so what an instruction writes comes from its encoding.
++  localparam string SteadSig = {"TOP.top.x_soc.x_cpu_sub_system_axi.x_rv_integration_platform.x_cpu_top",
++                                ".x_ct_top_0.x_ct_core.x_ct_iu_top.x_ct_iu_bju.idu_iu_rf_pipe2_src"};
++  reg         stead_bju_vld [0:127];             // iid -> the branch unit's last take of it
++  reg [63:0]  stead_bju_t [0:127];
++  reg [63:0]  stead_bju_s0 [0:127];
++  reg [63:0]  stead_bju_s1 [0:127];
++  longint     stead_seq;                         // instructions retired, in program order
++  longint     stead_last_w [0:31];               // x register -> retire number of its last writer
++  reg         stead_const_w [0:31];              // x register -> that writer loaded a constant
++  reg         stead_lui_w [0:31];                // x register -> that constant's chain began with lui
++  reg         stead_br;                          // the last conditional branch retired:
++  reg [39:0]  stead_br_pc;
++  reg [31:0]  stead_br_insn;
++  reg [6:0]   stead_br_iid;
++  longint     stead_br_w1, stead_br_w2;          // retire numbers of the last writes of rs1, rs2
++  reg         stead_br_c1, stead_br_c2;          // and whether those loaded a constant
++  reg         stead_br_next_pending;             // the branch retired; the next instruction says if it was taken
++  reg [39:0]  stead_br_next_pc;
++  string      stead_test, stead_dump;
++  longint     stead_sym_addr [$];               // the program's code labels, from +stead_sym=<nm output>
++  string      stead_sym_name [$];
++
++  initial begin
++    string sym_file, name, kind;
++    longint addr;
++    int fd;
++    if ($value$plusargs("stead_sym=%s", sym_file) && (fd = $fopen(sym_file, "r")) != 0) begin
++      while ($fscanf(fd, "%h %s %s", addr, kind, name) == 3)
++        if (kind == "t" || kind == "T") begin stead_sym_addr.push_back(addr); stead_sym_name.push_back(name); end
++      $fclose(fd);
++    end
++    stead_seq = 0;
++    stead_br  = 0;
++    stead_br_next_pending = 0;
++    for (int r = 0; r < 32; r++) begin stead_last_w[r] = -1; stead_const_w[r] = 0; stead_lui_w[r] = 0; end
++    for (int k = 0; k < 128; k++) stead_bju_vld[k] = 0;
++    void'($value$plusargs("stead_test=%s", stead_test));
++    void'($value$plusargs("dump_file=%s", stead_dump));
 +  end
++
++  // The program as loaded: four bytes to a word, in address order.
++  function automatic [7:0] stead_byte(input [39:0] a);
++    stead_byte = 8'(mem_inst_temp[a[17:2]] >> (8 * (3 - 32'(a[1:0]))));
++  endfunction
++
++  function automatic [31:0] stead_insn_at(input [39:0] pc);
++    stead_insn_at = {stead_byte(pc + 3), stead_byte(pc + 2), stead_byte(pc + 1), stead_byte(pc)};
++  endfunction
++
++  function automatic bit stead_is_condbr(input [31:0] insn);
++    return (insn[1:0] == 2'b11) ? (insn[6:0] == 7'b1100011) : (insn[1:0] == 2'b01 && insn[15:14] == 2'b11);
++  endfunction
++
++  // The x register an instruction writes (0: none), and whether it loads a constant. A constant
++  // is lui, auipc, c.li, c.lui, addi from x0, or an immediate op continuing a chain that began
++  // with lui (li of a wide value expands to such a chain). An immediate op on a register that
++  // began with addi from x0 is a computation, as the tests' `li x4,5; addiw x4,x4,-1`.
++  task automatic stead_writes(input [31:0] insn, output [4:0] rd, output bit is_const, output bit from_lui);
++    reg [4:0] rs1, rs2;
++    rd = 5'd0; is_const = 0; from_lui = 0;
++    if (insn[1:0] == 2'b11) begin
++      rs1 = insn[19:15];
++      case (insn[6:0])
++        7'b0110111, 7'b0010111: begin rd = insn[11:7]; is_const = 1; from_lui = 1; end     // lui, auipc
++        7'b0010011, 7'b0011011: begin rd = insn[11:7];                                   // op-imm, op-imm-32
++                                      is_const = (rs1 == 5'd0) || (rs1 == rd && stead_const_w[rd] && stead_lui_w[rd]);
++                                      from_lui = (rs1 == rd) && stead_lui_w[rd]; end
++        7'b0110011, 7'b0111011, 7'b0000011, 7'b1100111, 7'b1101111, 7'b0101111, 7'b0001011:
++                                begin rd = insn[11:7]; end                                // op, load, jalr, jal, amo, custom
++        7'b1110011: if (insn[14:12] != 3'b000) rd = insn[11:7];                           // csr ops
++        7'b1010011: if (insn[31:27] inside {5'b11000, 5'b11100, 5'b10100}) rd = insn[11:7]; // fp to int
++        default: ;
++      endcase
++    end else begin
++      case ({insn[1:0], insn[15:13]})
++        5'b00_000, 5'b00_010, 5'b00_011: rd = {2'b01, insn[4:2]};                          // c.addi4spn, c.lw, c.ld
++        5'b01_000, 5'b01_001: begin rd = insn[11:7]; is_const = stead_const_w[rd] && stead_lui_w[rd]; from_lui = stead_lui_w[rd]; end   // c.addi, c.addiw
++        5'b01_010: begin rd = insn[11:7]; is_const = 1; end                                // c.li
++        5'b01_011: begin rd = insn[11:7]; is_const = (rd != 5'd2); from_lui = (rd != 5'd2); end   // c.lui, c.addi16sp
++        5'b01_100: begin rd = {2'b01, insn[9:7]};                                          // c.srli/srai/andi, c.sub..
++                         is_const = (insn[11:10] != 2'b11) && stead_const_w[rd] && stead_lui_w[rd]; from_lui = (insn[11:10] != 2'b11) && stead_lui_w[rd]; end
++        5'b10_000: begin rd = insn[11:7]; is_const = stead_const_w[rd] && stead_lui_w[rd]; from_lui = stead_lui_w[rd]; end   // c.slli
++        5'b10_010, 5'b10_011: rd = insn[11:7];                                             // c.lwsp, c.ldsp
++        5'b10_100: begin
++          rs2 = insn[6:2];
++          if (insn[12] == 1'b0 && rs2 != 5'd0) begin rd = insn[11:7]; is_const = stead_const_w[rs2]; from_lui = stead_lui_w[rs2]; end // c.mv
++          else if (insn[12] == 1'b1 && rs2 == 5'd0 && insn[11:7] != 5'd0) rd = 5'd1;     // c.jalr
++          else if (insn[12] == 1'b1 && rs2 != 5'd0) rd = insn[11:7];                       // c.add
++        end
++        default: ;
++      endcase
++    end
++  endtask
++
++  // One retired entry: its instructions in program order, from the entry's first PC.
++  task automatic stead_retire(input [39:0] pc, input [6:0] iid, input [1:0] num);
++    reg [39:0] p;
++    reg [31:0] insn;
++    reg [4:0]  rd, rs1, rs2;
++    bit        is_const, from_lui;
++    p = pc;
++    for (int k = 0; k < ((num == 2'd0) ? 1 : int'(num)); k++) begin
++      insn = stead_insn_at(p);
++      if (stead_br_next_pending) begin stead_br_next_pc = p; stead_br_next_pending = 0; end
++      if (stead_is_condbr(insn)) begin
++        if (insn[1:0] == 2'b11) begin rs1 = insn[19:15]; rs2 = insn[24:20]; end
++        else begin rs1 = {2'b01, insn[9:7]}; rs2 = 5'd0; end  // c.beqz, c.bnez
++        stead_br       = 1;
++        stead_br_pc    = p;
++        stead_br_insn  = insn;
++        stead_br_iid   = iid;
++        stead_br_w1    = stead_last_w[rs1];
++        stead_br_c1    = stead_const_w[rs1];
++        stead_br_w2    = (rs2 == 5'd0) ? stead_seq : stead_last_w[rs2];  // x0: the expected side, zero
++        stead_br_c2    = (rs2 == 5'd0) ? 1'b1 : stead_const_w[rs2];
++        stead_br_next_pending = 1;
++      end else begin
++        stead_writes(insn, rd, is_const, from_lui);
++        if (rd != 5'd0) begin stead_last_w[rd] = stead_seq; stead_const_w[rd] = is_const; stead_lui_w[rd] = from_lui; end
++      end
++      stead_seq = stead_seq + 1;
++      p = p + ((insn[1:0] == 2'b11) ? 40'd4 : 40'd2);
++    end
++  endtask
++
++  always @(posedge clk) begin
++    if (`tb_retire0) stead_retire(`retire0_pc, `STEAD_RT.retire_inst0_iid, `STEAD_RT.rob_retire_inst0_num);
++    if (`tb_retire1) stead_retire(`retire1_pc, `STEAD_RT.retire_inst1_iid, `STEAD_RT.rob_retire_inst1_num);
++    if (`tb_retire2) stead_retire(`retire2_pc, `STEAD_RT.retire_inst2_iid, `STEAD_RT.rob_retire_inst2_num);
++    if (`STEAD_BJU.idu_iu_rf_bju_sel) begin     // time is $time-1, where the dump holds the operands this edge samples
++      stead_bju_vld[`STEAD_BJU.idu_iu_rf_pipe2_iid] = 1;
++      stead_bju_t[`STEAD_BJU.idu_iu_rf_pipe2_iid]   = $time - 1;
++      stead_bju_s0[`STEAD_BJU.idu_iu_rf_pipe2_iid]  = `STEAD_BJU.idu_iu_rf_pipe2_src0;
++      stead_bju_s1[`STEAD_BJU.idu_iu_rf_pipe2_iid]  = `STEAD_BJU.idu_iu_rf_pipe2_src1;
++    end
++  end
++
++  // The branch's target, from its encoding.
++  function automatic [39:0] stead_br_target(input [39:0] pc, input [31:0] insn);
++    reg [39:0] imm;
++    if (insn[1:0] == 2'b11) imm = {{28{insn[31]}}, insn[31], insn[7], insn[30:25], insn[11:8], 1'b0};
++    else imm = {{31{insn[12]}}, insn[12], insn[6:5], insn[2], insn[11:10], insn[4:3], 1'b0};
++    return pc + imm;
++  endfunction
++
++  // The test's section holding the check: the last code label at or before its PC.
++  function automatic string stead_section(input [39:0] pc);
++    longint best = -1;
++    string  name = "";
++    for (int i = 0; i < stead_sym_addr.size(); i++)
++      if (stead_sym_addr[i] <= longint'(pc) && stead_sym_addr[i] > best) begin best = stead_sym_addr[i]; name = stead_sym_name[i]; end
++    return name;
++  endfunction
++
++  task automatic stead_report();
++    string     cond, mn, where, test;
++    reg [63:0] s0, s1, e, a;
++    reg        taken, e_is_rs2, n;
++    if (!stead_br) begin
++      $display("NOTE  test=%0s  no STEAD record: no conditional branch retired before __fail", stead_test);
++      return;
++    end
++    if (stead_br_insn[1:0] != 2'b11) begin
++      mn   = stead_br_insn[13] ? "c.bnez" : "c.beqz";
++      cond = stead_br_insn[13] ? "ne" : "eq";
++    end else begin
++      case (stead_br_insn[14:12])
++        3'b000: begin mn = "beq";  cond = "eq";  end
++        3'b001: begin mn = "bne";  cond = "ne";  end
++        3'b100: begin mn = "blt";  cond = "lt";  end
++        3'b101: begin mn = "bge";  cond = "ge";  end
++        3'b110: begin mn = "bltu"; cond = "ltu"; end
++        default: begin mn = "bgeu"; cond = "geu"; end
++      endcase
++    end
++    // taken: the next instruction retired was the target (the Python compared the same two PCs)
++    taken = !stead_br_next_pending && (stead_br_next_pc == stead_br_target(stead_br_pc, stead_br_insn));
++    if (!taken)  // an inverted branch skipping the jump to the fail label
++      case (cond)
++        "eq": cond = "ne";  "ne": cond = "eq";  "lt": cond = "ge";
++        "ge": cond = "lt";  "ltu": cond = "geu"; default: cond = "ltu";
++      endcase
++    test  = (stead_section(stead_br_pc) == "") ? stead_test : {stead_test, ":", stead_section(stead_br_pc)};
++    where = $sformatf("failed check in section %0s at 0x%0h", stead_section(stead_br_pc), stead_br_pc);
++    if (cond != "ne") begin
++      $display("NOTE  test=%0s  no STEAD record: %0s, a %0s that wants no single value", stead_test, where, mn);
++    end else if (!stead_bju_vld[stead_br_iid]) begin
++      $display("NOTE  test=%0s  no STEAD record: %0s: the branch unit never took iid %0d", stead_test, where, stead_br_iid);
++    end else begin
++      s0 = stead_bju_s0[stead_br_iid];
++      s1 = stead_bju_s1[stead_br_iid];
++      if (stead_br_c2 != stead_br_c1) e_is_rs2 = stead_br_c2;         // the constant side is E
++      else e_is_rs2 = (stead_br_w2 >= stead_br_w1);                   // else the one written last
++      if (e_is_rs2) begin a = s0; e = s1; n = 0; end else begin a = s1; e = s0; n = 1; end
++      if (stead_br_insn[1:0] != 2'b11 || stead_br_insn[24:20] == 5'd0) e = 64'd0;
++      $display("FAIL  test=%0s  signal=%0s%0d  time=%0d  expected=0x%016h  actual=0x%016h  dump=%0s",
++               test, SteadSig, n, stead_bju_t[stead_br_iid], e, a, stead_dump);
++    end
++  endtask
  endmodule
 diff --git a/smart_run/tests/cases/ISA/ISA_IMAC/ct_imac_smoke.s b/smart_run/tests/cases/ISA/ISA_IMAC/ct_imac_smoke.s
 index 8df8c53..c42b513 100644
@@ -1770,6 +1968,19 @@ index 827452e..9c4607c 100644
        li x3, 0x20010
        ld x10, 0(x3)
        bne x10, x0 ,TEST_FAIL
+diff --git a/smart_run/tests/cases/exception/ct_expt_smoke.s b/smart_run/tests/cases/exception/ct_expt_smoke.s
+index 1b9a4e8..3be0a08 100644
+--- a/smart_run/tests/cases/exception/ct_expt_smoke.s
++++ b/smart_run/tests/cases/exception/ct_expt_smoke.s
+@@ -156,7 +156,7 @@ main:
+   MMU_PTW_4K 0x0,0x0,0xff,0xf
+ 
+       .option norvc
+-      dcache.ciall
++      th.dcache.ciall
+ .global DATA_CACHE_DIS
+ DATA_CACHE_DIS:
+       csrci mhcr,0x2
 diff --git a/smart_run/tests/lib/core_lsu.s b/smart_run/tests/lib/core_lsu.s
 index b9a6eaa..24daa94 100644
 --- a/smart_run/tests/lib/core_lsu.s

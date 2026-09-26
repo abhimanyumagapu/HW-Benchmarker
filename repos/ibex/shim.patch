@@ -1,3 +1,121 @@
+diff --git a/dv/riscv_compliance/lint/verilator_waiver.vlt b/dv/riscv_compliance/lint/verilator_waiver.vlt
+index 287b840..1f88c15 100644
+--- a/dv/riscv_compliance/lint/verilator_waiver.vlt
++++ b/dv/riscv_compliance/lint/verilator_waiver.vlt
+@@ -30,3 +30,9 @@
+ //
+ lint_off -rule WIDTH -file "*/rtl/ibex_riscv_compliance.sv"
+          -match "*expects 1 bits*Initial value's CONST '32'h1'*"
++
++// STEAD: the assertion code the shim turns on (INC_ASSERT) in ibex_top.sv warns, and the testbench
++// flops its reset both ways; waived for those two files only, so a bug patch elsewhere still warns.
++lint_off -rule WIDTHTRUNC -file "*/ibex_top.sv"
++lint_off -rule UNUSEDSIGNAL -file "*/ibex_top.sv"
++lint_off -rule SYNCASYNCNET -file "*/ibex_riscv_compliance.sv"
+diff --git a/dv/riscv_compliance/rtl/ibex_riscv_compliance.sv b/dv/riscv_compliance/rtl/ibex_riscv_compliance.sv
+index 47a1aaf..c1010e1 100644
+--- a/dv/riscv_compliance/rtl/ibex_riscv_compliance.sv
++++ b/dv/riscv_compliance/rtl/ibex_riscv_compliance.sv
+@@ -293,4 +293,99 @@ module ibex_riscv_compliance (
+       .host_rdata_i  (host_rdata[TestUtilHost]     )
+     );
+ 
++  // STEAD: the fail record, printed by the testbench. The compliance flow compares the printed
++  // signature with its reference after the run; here each word is compared as the test utility
++  // reads it, against +stead_ref=<reference_output>, and a wrong byte is traced to the store that
++  // last wrote it. The earliest such store is the record, as in scr1's shim.
++  // verilator lint_off BLKSEQ
++  // verilator lint_off UNUSEDSIGNAL
++  localparam string SteadSig = "TOP.ibex_riscv_compliance.u_top.u_ibex_top.rvfi_mem_wdata";
++  typedef struct packed {
++    logic [63:0] t;     // when the store retired: the time the tracer prints
++    logic [31:0] data;  // rvfi_mem_wdata: the stored bytes in its low bytes, unshifted
++    logic [1:0]  off;   // the store's address offset
++    logic [2:0]  n;     // bytes stored
++  } stead_store_t;
++  stead_store_t stead_last [logic [31:0]];  // byte address -> the last store that wrote it
++
++  always @(posedge clk_sys) begin
++    if (u_top.rvfi_valid) begin
++      for (int k = 0; k < 4; k++) begin
++        if (u_top.rvfi_mem_wmask[k]) begin
++          stead_last[u_top.rvfi_mem_addr + k] = '{$time, u_top.rvfi_mem_wdata, u_top.rvfi_mem_addr[1:0],
++                                                  3'($countones(u_top.rvfi_mem_wmask))};
++        end
++      end
++    end
++  end
++
++  string        stead_test, stead_dump;
++  int           stead_fd;
++  int unsigned  stead_words, stead_refs;  // signature words printed, reference words read
++  bit           stead_read, stead_found, stead_differs;
++  stead_store_t stead_best;               // the earliest store that last wrote a wrong byte
++  logic [31:0]  stead_best_e;             // the reference word holding that byte
++  logic [31:0]  note_addr, note_e, note_a;
++
++  initial begin
++    string ref_file;
++    void'($value$plusargs("stead_test=%s", stead_test));
++    void'($value$plusargs("dump_file=%s", stead_dump));
++    if ($value$plusargs("stead_ref=%s", ref_file)) stead_fd = $fopen(ref_file, "r");
++  end
++
++  always @(posedge clk_sys) begin
++    if (stead_fd != 0 && host_rvalid[TestUtilHost]) begin
++      logic [31:0] e, a, addr;
++      a    = host_rdata[TestUtilHost];
++      addr = u_riscv_testutil.begin_signature_addr_q + 4 * stead_words;
++      if ($fscanf(stead_fd, "%h", e) == 1) begin
++        stead_refs++;
++        if (e != a) begin
++          if (!stead_differs) begin
++            note_addr = addr;
++            note_e    = e;
++            note_a    = a;
++          end
++          stead_differs = 1;
++          for (int j = 0; j < 4; j++) begin
++            if (e[j*8+:8] != a[j*8+:8] && stead_last.exists(addr + j) &&
++                (!stead_found || stead_last[addr + j].t < stead_best.t)) begin
++              stead_found  = 1;
++              stead_best   = stead_last[addr + j];
++              stead_best_e = e;
++            end
++          end
++        end
++      end
++      stead_words++;
++      if (u_riscv_testutil.state_q == u_riscv_testutil.READ_FINISH) stead_read = 1;
++    end
++  end
++
++  final begin
++    if (stead_read) begin
++      logic [31:0] e, ev;
++      while ($fscanf(stead_fd, "%h", e) == 1) stead_refs++;
++      if (stead_found) begin
++        ev = stead_best.data;  // the store's bytes, each as the reference has it
++        for (int k = 0; k < 4; k++) begin
++          if (k < int'(stead_best.n)) begin
++            ev[k*8+:8] = (int'(stead_best.off) + k < 4) ? stead_best_e[(int'(stead_best.off) + k)*8+:8] : 8'h00;
++          end
++        end
++        $display("FAIL  test=%0s  signal=%0s  time=%0d  expected=0x%08h  actual=0x%08h  dump=%0s",
++                 stead_test, SteadSig, stead_best.t, ev, stead_best.data, stead_dump);
++      end else if (stead_differs) begin
++        $display("NOTE  test=%0s  signature word addr=0x%08h  expected=0x%08h  actual=0x%08h  (never stored)",
++                 stead_test, note_addr, note_e, note_a);
++      end else if (stead_refs != stead_words) begin
++        $display("NOTE  test=%0s  signature length differs: %0d words expected, %0d printed",
++                 stead_test, stead_refs, stead_words);
++      end
++    end
++  end
++  // verilator lint_on UNUSEDSIGNAL
++  // verilator lint_on BLKSEQ
++
+ endmodule
 diff --git a/vendor/lowrisc_ip/ip/prim/rtl/prim_assert.sv b/vendor/lowrisc_ip/ip/prim/rtl/prim_assert.sv
 index 43030af..cfc117e 100644
 --- a/vendor/lowrisc_ip/ip/prim/rtl/prim_assert.sv

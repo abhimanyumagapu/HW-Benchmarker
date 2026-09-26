@@ -3,8 +3,9 @@
 #   run.sh build <tree>                                            Verilator build of caliptra_top_tb (FST always on)
 #   run.sh run   <tree> <smoke_test_sha256> <out> [--dump=on|off]  build the test firmware and run it (~3 min)
 #   run.sh suite <tree> <out> [<regex>]                            the 59 L0 smoke tests (~3 min each); pass a regex for a subset
-# E/A come from the firmware's expected/actual prints, S/T from the AHB bus log (+CLP_BUS_LOGS); stead_line.py
-# joins them. A hang (+CLP_MAX_CYCLES) or a fired assertion (CLP_ASSERT_ON, shim.patch) ends in a NOTE line, exit 1.
+# The testbench prints the STEAD line (shim.patch): E/A from the firmware's expected/actual prints, S/T from the
+# core's last AHB read of A. A hang (+CLP_MAX_CYCLES) or a fired assertion (CLP_ASSERT_ON) is exit 1. sim.log is
+# only what the sim printed.
 # The build/run dir is <tree>/work/trace (gitignored).
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -35,20 +36,13 @@ case $verb in
     rm -f program.hex *.o sim.fst console.log exec.log lsu_master_ahb_trace.log verilator_sim.log
     cap=$(cycles "$test")   # the test's own plusargs (its yml) ride along, so the OCP lock setting is not random
     args=$(grep -oE "^\s*-\s*'?\+[A-Za-z0-9_=]+" "$tree/src/integration/test_suites/$test/$test.yml" 2>/dev/null | grep -oE "\+.*" | tr '\n' ' ')
-    "${MK[@]}" TESTNAME="$test" verilator VERILATOR_RUN_ARGS="+CLP_BUS_LOGS +CLP_MAX_CYCLES=$cap $args" > "$out/run.log" 2>&1 || true
+    "${MK[@]}" TESTNAME="$test" verilator VERILATOR_RUN_ARGS="+CLP_BUS_LOGS +CLP_MAX_CYCLES=$cap +stead_test=$test +dump_file=$out/dump.fst $args" > "$out/run.log" 2>&1 || true
     [ -f verilator_sim.log ] || { grep -m3 -iE "error" "$out/run.log" > "$out/sim.log"; exit 2; }   # the firmware did not build: no sim ran
     cp console.log lsu_master_ahb_trace.log "$out/" 2>/dev/null
     if [ "$dump" = --dump=on ] && [ -f sim.fst ]; then mv sim.fst "$out/dump.fst"; else rm -f sim.fst; fi
-    cat verilator_sim.log console.log > "$out/sim.log"   # everything the sim and the firmware printed, the verdict last
-    if grep -q "TESTCASE PASSED" verilator_sim.log; then echo "PASS  test=$test" >> "$out/sim.log"; exit 0; fi
-    if grep -q "TESTCASE FAILED" verilator_sim.log; then
-      python3 "$HERE/stead_line.py" "$out" "$test" "$out/dump.fst" >> "$out/sim.log" || exit 3   # the joiner crashed: a crash, not a verdict
-      exit 1
-    fi
-    if grep -q "Hit max cycle count" verilator_sim.log; then echo "NOTE  test=$test  hang  (no test end inside $cap cycles)" >> "$out/sim.log"; exit 1; fi
-    if grep -q "Assertion failed in" verilator_sim.log; then
-      echo "NOTE  test=$test  assertion  $(grep -m1 "Assertion failed in" verilator_sim.log)" >> "$out/sim.log"; exit 1
-    fi
+    cp verilator_sim.log "$out/sim.log"   # everything the sim printed; the firmware's console is in it (and in console.log)
+    grep -q "TESTCASE PASSED" verilator_sim.log && exit 0
+    grep -qE "TESTCASE FAILED|Hit max cycle count|Assertion failed in" verilator_sim.log && exit 1   # a check, a hang, an assertion
     exit 3 ;;
   suite)
     grep -vE "^\s*#" "$tree/src/integration/stimulus/L0_regression.yml" | grep -o "test_suites/[A-Za-z0-9_]*/" | cut -d/ -f2 | sort -u | stead_suite "$0" "$tree" "$(mkdir -p "$3" && cd "$3" && pwd)" "${4:-.}" ;;

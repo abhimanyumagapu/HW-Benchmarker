@@ -15,7 +15,7 @@ from pathlib import Path
 _FAIL = re.compile(
     r"^\s*FAIL\s+test=(?P<test>\S+)\s+signal=(?P<signal>\S+)\s+time=(?P<time>\d+)\s+"
     r"expected=0x(?P<expected>[0-9a-fA-F]+)\s+actual=0x(?P<actual>[0-9a-fA-F]+)"
-    r"(?:\s+dump=(?P<dump>\S+))?\s*$"
+    r"(?:\s+dump=(?P<dump>\S*))?\s*$"  # a run without a dump prints an empty dump=
 )
 
 
@@ -49,7 +49,7 @@ def parse_fail_line(line: str) -> Stead | None:
         time=int(m["time"]),
         expected=int(m["expected"], 16),
         actual=int(m["actual"], 16),
-        dump=m["dump"],
+        dump=m["dump"] or None,
     )
 
 

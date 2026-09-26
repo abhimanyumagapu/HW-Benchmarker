@@ -4,7 +4,7 @@
 #   run.sh run   <tree> <test.hex> <out> [--dump=on|off]  runs one test; sim.log + dump.fst in <out>
 #   run.sh suite <tree> <out> [<regex>]                    every hex in the build's test_info (221)
 # The TB (shimmed, see shim.patch) prints the STEAD FAIL line itself and a "Summary: n/1 tests passed";
-# a hang (TIMEOUT) or a fired SVA property (--assert) ends in a NOTE line and exit 1.
+# a hang (TIMEOUT) or a fired SVA property (--assert) is exit 1. sim.log is only what the sim printed.
 set -u
 . "$(dirname "$0")/../env.sh"
 verb=$1; tree=$(cd "$2" && pwd)
@@ -27,12 +27,7 @@ case $verb in
     plus="+timeout=$TIMEOUT"; [ "$dump" = --dump=on ] && plus="$plus +dump_file=$out/dump.fst"
     ( cd "$B" && ./verilator/Vscr1_top_tb_axi +test_info="$out/test_info" +test_results="$out/results.txt" $plus ) \
       2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$out/sim.log"
-    if grep -q "Assertion failed in" "$out/sim.log"; then
-      echo "NOTE  test=$test  assertion  $(grep -m1 "Assertion failed in" "$out/sim.log")" >> "$out/sim.log"; exit 1
-    fi
-    if grep -q "Error: TIMEOUT" "$out/sim.log"; then
-      echo "NOTE  test=$test  hang  (no test end inside $TIMEOUT cycles)" >> "$out/sim.log"; exit 1
-    fi
+    grep -qE "Assertion failed in|Error: TIMEOUT" "$out/sim.log" && exit 1   # a fired assertion, or a hang
     grep -q "^# Summary: " "$out/sim.log" || exit 3          # no summary: the sim died
     grep -q "^# Summary: 1/1" "$out/sim.log" && exit 0
     exit 1 ;;

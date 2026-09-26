@@ -4,4 +4,3 @@ validated_on: verilator-5.052
 dut_paths: [C910_RTL_FACTORY/**]
 checker_paths: [smart_run/**]
 jobs: 4
-keep: [trace.txt]

@@ -3,10 +3,11 @@
 #   run.sh build <tree>                                        fusesoc Verilator build of ibex_riscv_compliance
 #   run.sh run   <tree> <isa>/<test> <out> [--dump=on|off]     one riscv-compliance test, e.g. rv32i/I-XOR-01
 #   run.sh suite <tree> <out> [<regex>]                        the compliance tests minus the known clean-tree fails
-# The STEAD line is made afterwards by stead_line.py from the signature diff and the RVFI trace the sim
-# writes. Test ELFs come prebuilt from $STEAD_TOOLS/riscv-compliance/work/<isa>/ (rv32mi and rv32si are
-# built there by `build`). A hang (--term-after-cycles) or a fired assertion (--assert, with the real SVA
-# macros from shim.patch) ends in a NOTE line, exit 1.
+# The testbench prints the STEAD line (shim.patch): it compares the signature with the reference as it
+# reads it, and traces a wrong byte to the store that last wrote it. Test ELFs come prebuilt from
+# $STEAD_TOOLS/riscv-compliance/work/<isa>/ (rv32mi and rv32si are built there by `build`). A hang
+# (--term-after-cycles) or a fired assertion (--assert, with the real SVA macros from shim.patch) is
+# exit 1. sim.log is only what the sim printed.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/../env.sh"
@@ -43,19 +44,14 @@ case $verb in
     vmem=$COMP/work/$isa/$test.elf.vmem; ref=$COMP/riscv-test-suite/$isa/references/$test.reference_output
     [ -x "$SIM" ] || { echo "not built" > "$out/sim.log"; exit 2; }
     [ -f "$vmem" ] || { echo "no prebuilt test: $vmem (run the compliance make once)" > "$out/sim.log"; exit 2; }
-    trace=""; [ "$dump" = --dump=on ] && trace="--trace=$out/dump.fst"
-    ( cd "$out" && "$SIM" --raminit="$vmem" $trace --term-after-cycles=100000 > stdout 2>&1; mv -f trace_core_00000000.log trace.log 2>/dev/null )
-    if grep -q "Simulation timeout of" "$out/stdout"; then
-      { cat "$out/stdout"; echo "NOTE  test=$test  hang  (no test end inside 100000 cycles)"; } > "$out/sim.log"; exit 1
-    fi
-    if grep -q "Assertion failed in" "$out/stdout"; then
-      { cat "$out/stdout"; echo "NOTE  test=$test  assertion  $(grep -m1 "Assertion failed in" "$out/stdout")"; } > "$out/sim.log"; exit 1
-    fi
-    grep -q "^SIGNATURE: " "$out/stdout" || { cp "$out/stdout" "$out/sim.log"; exit 3; }
-    { cat "$out/stdout"; python3 "$HERE/stead_line.py" "$test" "$ref" "$out/stdout" "$out/trace.log" "$out/dump.fst"; } \
-      > "$out/sim.log" || exit 3   # everything the sim printed, then the verdict; the joiner crashing is a crash, not a verdict
-    grep -q "^PASS " "$out/sim.log" && exit 0
-    exit 1 ;;
+    [ -f "$ref" ] || { echo "no reference signature: $ref" > "$out/sim.log"; exit 2; }   # the testbench compares against it
+    trace=""; [ "$dump" = --dump=on ] && trace="--trace=$out/dump.fst +dump_file=$out/dump.fst"
+    ( cd "$out" && "$SIM" --raminit="$vmem" $trace --term-after-cycles=100000 +stead_test="$test" +stead_ref="$ref" > sim.log 2>&1
+      mv -f trace_core_00000000.log trace.log 2>/dev/null )
+    grep -qE "Simulation timeout of|Assertion failed in" "$out/sim.log" && exit 1   # a hang, or a fired assertion
+    grep -q "^SIGNATURE: " "$out/sim.log" || exit 3                             # the sim died before the test ended
+    grep -qE "^(FAIL|NOTE) " "$out/sim.log" && exit 1                           # the testbench's signature check
+    exit 0 ;;
   suite)
     for isa in rv32i rv32im rv32imc rv32Zicsr rv32Zifencei rv32mi rv32si; do for r in "$COMP/riscv-test-suite/$isa/references"/*.reference_output; do t=$(basename "$r" .reference_output); case " $KNOWN " in *" $t "*) ;; *) echo "$isa/$t";; esac; done; done | stead_suite "$0" "$tree" "$(mkdir -p "$3" && cd "$3" && pwd)" "${4:-.}" ;;
   *) echo "usage: run.sh build <tree> | run <tree> <test> <out> [--dump=on|off] | suite <tree> <out> [<regex>]" >&2; exit 64 ;;

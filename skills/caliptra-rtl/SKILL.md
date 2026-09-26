@@ -46,8 +46,8 @@ takes about three minutes.
 - `logs/lsu_master_ahb_trace.log`: every AHB-lite transfer the core made: `cycle : 0xaddr hsize
   htrans hwrite 0xhrdata_hi_lo 0xhwdata_hi_lo hready hresp`. A read of a result register shows
   what the block returned; a write shows what the firmware configured.
-- `logs/verilator_sim.log`, `logs/run.log`: the simulator's log and the build/run output.
-- `logs/fail.log`: the verdict line.
+- `logs/fail.log`: the simulator's output, the firmware's console lines in it; the testbench's `FAIL`
+  line comes just before `* TESTCASE FAILED`. A hang or a fired assertion has no `FAIL` line.
 
 ## Wave
 

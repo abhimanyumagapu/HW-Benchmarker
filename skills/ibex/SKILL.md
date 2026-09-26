@@ -40,8 +40,8 @@ example `rv32i/I-XOR-01`. Four trap tests are excluded as known clean-tree disag
 - `logs/trace.log`: the RVFI instruction trace, tab separated: `Time  Cycle  PC  Insn  Decoded
   instruction  Register and memory contents`. `x10=0x..` is a write, `x10:0x..` a read,
   `PA:0x.. store:0x..` and `load:0x..` are memory accesses. Time is the dump time.
-- `logs/stdout`: the simulator's stdout with the `SIGNATURE:` lines.
-- `logs/fail.log`: the verdict line.
+- `logs/fail.log`: the simulator's output: the `SIGNATURE:` lines, then the testbench's `FAIL` line
+  (or a `NOTE`), then the simulator's statistics. A hang or a fired assertion has no `FAIL` line.
 
 ## Wave
 

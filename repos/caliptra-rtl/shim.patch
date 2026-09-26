@@ -1,3 +1,189 @@
+diff --git a/src/integration/config/caliptra_top_tb.vf b/src/integration/config/caliptra_top_tb.vf
+index 4226da3..2a2d31c 100644
+--- a/src/integration/config/caliptra_top_tb.vf
++++ b/src/integration/config/caliptra_top_tb.vf
+@@ -448,8 +448,10 @@ ${CALIPTRA_ROOT}/src/datavault/rtl/dv.sv
+ ${CALIPTRA_ROOT}/src/axi/rtl/axi_pkg.sv
+ ${CALIPTRA_ROOT}/src/axi/rtl/axi_if.sv
+ ${CALIPTRA_ROOT}/src/axi/rtl/axi_addr.v
++${CALIPTRA_ROOT}/src/integration/tb/stead_assert_off.svh
+ ${CALIPTRA_ROOT}/src/axi/rtl/axi_sub_rd.sv
+ ${CALIPTRA_ROOT}/src/axi/rtl/axi_sub_wr.sv
++${CALIPTRA_ROOT}/src/integration/tb/stead_assert_on.svh
+ ${CALIPTRA_ROOT}/src/axi/rtl/axi_sub_arb.sv
+ ${CALIPTRA_ROOT}/src/axi/rtl/axi_sub.sv
+ ${CALIPTRA_ROOT}/src/soc_ifc/rtl/soc_ifc_pkg.sv
+diff --git a/src/integration/tb/caliptra_top_tb_services.sv b/src/integration/tb/caliptra_top_tb_services.sv
+index 27f1650..f679291 100644
+--- a/src/integration/tb/caliptra_top_tb_services.sv
++++ b/src/integration/tb/caliptra_top_tb_services.sv
+@@ -2739,6 +2739,7 @@ endgenerate //IV_NO
+             if (UVM_TB) $info("INFO: Detected FW write to manually end the test with FAIL; ignoring since the UVM environment will handle this.");
+             else begin
+                 cycleCntKillReq <= cycleCnt;
++                stead_report();  // STEAD: before the $error, where Verilator stops the run
+                 $error("* TESTCASE FAILED");
+                 $display(" -- Extending simulation for 100 clock cycles to capture ending waveform");
+             end
+@@ -2802,6 +2803,134 @@ endgenerate //IV_NO
+                         `CPTRA_TOP_PATH.initiator_inst.hready, `CPTRA_TOP_PATH.initiator_inst.hresp);
+     end
+ 
++    // STEAD: the fail record, printed by the testbench when a failed test ends. E and A are the
++    // firmware's own expected/actual console prints; S and T are the core's last AHB read that
++    // returned A, on the LSU initiator's hrdata. The bus is sampled at the negedge, where it still
++    // holds what the LSU monitor above logs for the posedge before (T is that posedge).
++    localparam string SteadSig = "TOP.caliptra_top_tb.caliptra_top_dut.initiator_inst.hrdata";
++    typedef struct packed {
++        logic [31:0] n;       // cycleCnt of the read's data phase
++        logic [31:0] addr;
++        logic [63:0] hrdata;
++    } stead_read_t;
++    stead_read_t stead_last_read [logic [31:0]];  // a 32-bit value read -> the last read that returned it
++    bit          stead_pending;                   // a read's address phase went out; its data is next
++    logic [31:0] stead_pending_addr;
++    string       stead_con;                       // the console line being printed
++    bit          stead_pair, stead_have_e, stead_have_a;
++    logic [63:0] stead_e, stead_a;
++    string       stead_test, stead_dump;
++
++    initial begin
++        void'($value$plusargs("stead_test=%s", stead_test));
++        void'($value$plusargs("dump_file=%s", stead_dump));
++    end
++
++    function automatic bit stead_is_hex(byte c);
++        return (c >= "0" && c <= "9") || (c >= "a" && c <= "f") || (c >= "A" && c <= "F");
++    endfunction
++
++    // The hex digits of s from i: their value, and the index after them (-1 when there are none).
++    function automatic int stead_hex(string s, int i, output logic [63:0] v);
++        int j = i;
++        v = '0;
++        while (j < s.len() && stead_is_hex(s[j])) begin
++            v = (v << 4) | 64'((s[j] <= "9") ? s[j] - "0" : (s[j] | 8'h20) - "a" + 10);
++            j++;
++        end
++        return (j > i) ? j : -1;
++    endfunction
++
++    function automatic bit stead_at(string s, int i, string lit);
++        return i >= 0 && i + lit.len() <= s.len() && s.substr(i, i + lit.len() - 1) == lit;
++    endfunction
++
++    // "<p1><hex><p2><hex><p3>" at i: the two values.
++    function automatic bit stead_two(string s, int i, string p1, string p2, string p3,
++                                     output logic [63:0] x, output logic [63:0] y);
++        int j;
++        x = '0;
++        y = '0;
++        if (!stead_at(s, i, p1)) return 0;
++        j = stead_hex(s, i + p1.len(), x);
++        if (j < 0 || !stead_at(s, j, p2)) return 0;
++        j = stead_hex(s, j + p2.len(), y);
++        return j >= 0 && (p3 == "" || stead_at(s, j, p3));
++    endfunction
++
++    // One console line: the firmware's expected and actual, from the first line that holds a pair,
++    // else from the first "Expected data: 0x.." and the first "Actual data: 0x.." lines.
++    task automatic stead_console_line(string s);
++        logic [63:0] x, y;
++        int j;
++        if (stead_pair) return;
++        for (int i = 0; i < s.len(); i++)
++            if (stead_two(s, i, "EXP: 0x", " RECVD: 0x", "", x, y)) begin stead_e = x; stead_a = y; stead_pair = 1; return; end
++        for (int i = 0; i < s.len(); i++)
++            if (stead_two(s, i, "actual (0x", ") expected (0x", ")", x, y)) begin stead_a = x; stead_e = y; stead_pair = 1; return; end
++        for (int i = 0; i < s.len(); i++)
++            if (stead_two(s, i, "got=0x", " want=0x", "", x, y)) begin stead_a = x; stead_e = y; stead_pair = 1; return; end
++        for (int i = 0; i < s.len(); i++) begin
++            bit is_e = stead_at(s, i, "Expected");
++            if (!is_e && !stead_at(s, i, "Actual")) continue;
++            j = i + (is_e ? 8 : 6);
++            if (j >= s.len() || !(s[j] inside {" ", "\t", "\n", "\r", 8'h0b, 8'h0c})) continue;
++            while (j < s.len() && s[j] inside {" ", "\t", "\n", "\r", 8'h0b, 8'h0c}) j++;
++            if (!stead_at(s, j, "data: 0x") || stead_hex(s, j + 8, x) < 0) continue;
++            if (is_e && !stead_have_e) begin stead_e = x; stead_have_e = 1; end
++            if (!is_e && !stead_have_a) begin stead_a = x; stead_have_a = 1; end
++            stead_pair = stead_have_e && stead_have_a;
++            break;
++        end
++    endtask
++
++    function automatic string stead_x8(logic [63:0] v);  // at least 8 hex digits, as the Python printed
++        return (v[63:32] == 0) ? $sformatf("%08h", v[31:0]) : $sformatf("%0h", v);
++    endfunction
++
++    task automatic stead_report();
++        stead_read_t r;
++        logic [63:0] ev;
++        if (stead_con.len() != 0) begin  // the firmware's last line, not ended by a newline yet
++            stead_console_line(stead_con);
++            stead_con = "";
++            $display("");                // so the record starts a line of its own
++        end
++        if (!stead_pair) begin
++            $display("NOTE  test=%0s  no Expected/Actual pair in console.log", stead_test);
++        end else if (stead_a[63:32] != 0 || !stead_last_read.exists(stead_a[31:0])) begin
++            $display("NOTE  test=%0s  expected=0x%0s  actual=0x%0s  (no LSU read of the actual value found)",
++                     stead_test, stead_x8(stead_e), stead_x8(stead_a));
++        end else begin
++            r  = stead_last_read[stead_a[31:0]];
++            ev = r.addr[2] ? {stead_e[31:0], r.hrdata[31:0]} : {r.hrdata[63:32], stead_e[31:0]};
++            $display("FAIL  test=%0s  signal=%0s  time=%0d  expected=0x%016h  actual=0x%016h  dump=%0s",
++                     stead_test, SteadSig, 64'(r.n) * 100 + 50, ev, r.hrdata, stead_dump);  // posedge n: 100n+50
++        end
++    endtask
++
++    always @(negedge clk) begin
++        if (stead_pending && `CPTRA_TOP_PATH.initiator_inst.hready) begin  // the pending read's data phase
++            logic [63:0] d;
++            d = `CPTRA_TOP_PATH.initiator_inst.hrdata;
++            stead_last_read[stead_pending_addr[2] ? d[63:32] : d[31:0]] = '{32'(cycleCnt), stead_pending_addr, d};
++            stead_pending = 0;
++        end
++        if (`CPTRA_TOP_PATH.initiator_inst.htrans == 2'b10 && !`CPTRA_TOP_PATH.initiator_inst.hwrite &&
++            `CPTRA_TOP_PATH.initiator_inst.hready) begin                   // a read's address phase
++            stead_pending      = 1;
++            stead_pending_addr = 32'(`CPTRA_TOP_PATH.initiator_inst.haddr);
++        end
++        if (mailbox_data_val & mailbox_write) begin
++            if (WriteData[7:0] inside {8'h0A, 8'h0D}) begin
++                stead_console_line(stead_con);
++                stead_con = "";
++            end else begin
++                stead_con = {stead_con, $sformatf("%c", WriteData[7:0])};
++            end
++        end
++    end
++
+     // AHB responder interfaces monitor
+     genvar sl_i;
+     generate
+diff --git a/src/integration/tb/stead_assert_off.svh b/src/integration/tb/stead_assert_off.svh
+new file mode 100644
+index 0000000..8235c9a
+--- /dev/null
++++ b/src/integration/tb/stead_assert_off.svh
+@@ -0,0 +1,7 @@
++// STEAD: Verilator 5.052 cannot build the `eventually` properties in axi_sub_rd.sv and axi_sub_wr.sv.
++// caliptra_top_tb.vf lists this file before them and stead_assert_on.svh after, so only their
++// CALIPTRA_ASSERTs are left out; every other file keeps CLP_ASSERT_ON.
++`ifdef CLP_ASSERT_ON
++  `define STEAD_CLP_ASSERT_WAS_ON
++  `undef CLP_ASSERT_ON
++`endif
+diff --git a/src/integration/tb/stead_assert_on.svh b/src/integration/tb/stead_assert_on.svh
+new file mode 100644
+index 0000000..55b378b
+--- /dev/null
++++ b/src/integration/tb/stead_assert_on.svh
+@@ -0,0 +1,5 @@
++// STEAD: turns CLP_ASSERT_ON back on after axi_sub_rd.sv and axi_sub_wr.sv (see stead_assert_off.svh).
++`ifdef STEAD_CLP_ASSERT_WAS_ON
++  `define CLP_ASSERT_ON
++  `undef STEAD_CLP_ASSERT_WAS_ON
++`endif
 diff --git a/tools/scripts/Makefile b/tools/scripts/Makefile
 index 204a0d4..3bdf70b 100644
 --- a/tools/scripts/Makefile

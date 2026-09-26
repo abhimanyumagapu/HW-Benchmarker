@@ -30,6 +30,10 @@ def test_fail_line_parses_all_four_or_not_at_all():
     assert parse_fail_line("NOTE  test=x  never stored") is None
 
 
+def test_fail_line_from_a_run_without_a_dump_still_parses():
+    assert parse_fail_line(LINE.replace("dump=/x.fst", "dump=")) == rec(test="I-XOR-01", dump=None)
+
+
 def test_first_fail_line_in_log_wins(tmp_path):
     log = tmp_path / "sim.log"
     log.write_text("hello\n" + LINE + "\n" + LINE.replace("time=100", "time=999") + "\n")

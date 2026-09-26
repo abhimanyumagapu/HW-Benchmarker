@@ -41,8 +41,9 @@ Test names are riscv-tests p tests, `<set>-p-<name>`: `rv64ui-p-xor`, `rv64um-p-
   instructions the tandem disagreed on: a `CSR ... Mismatch` or `UVM_ERROR` line with `[REF]` and
   `[CORE]` values, each with its RVFI line
   `<ns> | RVFI | <hart> | <trap> | <pc> | <insn> | <priv> | x<rd> | <rd_wdata> | x<rs1> | <rs1_rdata>
-  | x<rs2> | <rs2_rdata> | <disasm>`, and last the STEAD `FAIL` or `NOTE` line. It is not the whole
-  trace: for that use the three below.
+  | x<rs2> | <rs2_rdata> | <disasm>`, and the testbench's STEAD `FAIL` or `NOTE` line at the first
+  rd mismatch. A hang leaves only `tohost=2147483647`. It is not the whole trace: for that use the
+  three below.
 - `logs/trace_hart_0.dasm`: every retired instruction, `<cycle> <pc> <priv> (<word>) DASM(<word>)`.
   The cycle column is the tandem's ns, so dump time is twice it.
 - `logs/trace_rvfi_hart_00.dasm`: the same retirements with their register writes,

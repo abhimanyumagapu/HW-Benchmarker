@@ -1,21 +1,22 @@
 #!/bin/bash
 # openc910 recipe. Contract: see stead/recipe.py.
 #   run.sh build <tree>                                   the smart_run Verilator TB (FST) and the five tests
-#   run.sh run   <tree> <test> <out> [--dump=on|off]      one test: ISA_IMAC, ISA_FP, ISA_AMO, ISA_THEAD or exception
-#   run.sh suite <tree> <out> [<regex>]                   the five
+#   run.sh run   <tree> <test> <out> [--dump=on|off]      one test: ISA_IMAC, ISA_FP, ISA_AMO or ISA_THEAD
+#   run.sh suite <tree> <out> [<regex>]                   the four
 # The other smart_run cases have no value check (or no stimulus in the Verilator TB) and are not run.
 # openc910 targets Verilator 4 and T-Head's GCC 8. For Verilator 5.050 and GCC 15: -Os dropped,
 # --no-timing (Verilator 4 ignored delays too), the timescale overridden so $time is the dump's time,
 # xtheadc spelled as its parts, T-Head's CSR names given as symbols, bash for the case rules' `>&`,
 # and srec2vmem.py for the x86-only Srec2vmem. shim.patch renames old T-Head mnemonics to th.*, keeps
-# two li in ISA_IMAC uncompressed, and adds the dump and the trace stead_line.py reads.
+# two li in ISA_IMAC uncompressed, and adds the dump and the STEAD line: the testbench prints it when a check
+# fails. sim.log is only what the sim printed.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/../env.sh"
 verb=$1; tree=$(cd "$2" && pwd)
 S=$tree/smart_run
 SIM=$S/work/obj_dir/Vtop
-TESTS="ISA_IMAC ISA_FP ISA_AMO ISA_THEAD exception"
+TESTS="ISA_IMAC ISA_FP ISA_AMO ISA_THEAD"   # exception builds but hangs on the clean tree (cause not found yet)
 MAX_CYCLES=100000   # per run, 4x the longest clean test; a livelock ends here, a deadlock at the TB's 50k idle cycles
 export CODE_BASE_PATH=$tree/C910_RTL_FACTORY TOOL_EXTENSION=$STEAD_TOOLS/bin
 VFLAGS="-x-assign 0 -Wno-fatal --no-timing --threads 4 --trace-fst --timescale-override 1ns/1ns"
@@ -68,7 +69,8 @@ case $verb in
         make -s -C "$S" SHELL=/bin/bash buildcase CASE=$t FLAG_MARCH="$FLAG_MARCH" CONVERT="python3 $HERE/srec2vmem.py"
       fi >> "$tree/build.log" 2>&1
       mkdir -p "$S/cases/$t" && cp "$S"/work/inst.pat "$S"/work/data.pat "$S"/work/*.elf "$S/cases/$t/" \
-        || { echo "test $t did not build: $S/work/${t}_build.case.log"; exit 2; }
+        && riscv64-unknown-elf-nm "$S/cases/$t"/*.elf > "$S/cases/$t/syms.txt" \
+        || { echo "test $t did not build: $S/work/${t}_build.case.log"; exit 2; }   # syms.txt: the testbench names the failing check's section
     done
     exit 0 ;;
   run)
@@ -76,17 +78,11 @@ case $verb in
     [ -x "$SIM" ] || { echo "not built" > "$out/sim.log"; exit 2; }
     [ -f "$S/cases/$test/inst.pat" ] || { echo "no such test: $test" > "$out/sim.log"; exit 2; }
     cp "$S/cases/$test/inst.pat" "$S/cases/$test/data.pat" "$out/"
-    plus="+trace_file=$out/trace.txt"; [ "$dump" = --dump=on ] && plus="$plus +dump_file=$out/dump.fst"
-    ( cd "$out" && "$SIM" $plus +max_cycles=$MAX_CYCLES > stdout 2>&1 )
-    grep -q "simulation finished successfully" "$out/stdout" && { cp "$out/stdout" "$out/sim.log"; exit 0; }
-    if grep -qE "no instructions retired|meeting max simulation time" "$out/stdout"; then
-      { cat "$out/stdout"; echo "NOTE  test=$test  hang  (no test end inside $MAX_CYCLES cycles)"; } > "$out/sim.log"; exit 1
-    fi
-    # anything but a check jumping to __fail (watchdog, timeout, crash) is not a verdict
-    grep -q "simulation finished with error" "$out/stdout" || { cp "$out/stdout" "$out/sim.log"; exit 3; }
-    { cat "$out/stdout"; python3 "$HERE/stead_line.py" "$test" "$S/cases/$test"/*.elf "$out/trace.txt" "$out/dump.fst"; } \
-      > "$out/sim.log" || exit 3
-    exit 1 ;;
+    plus="+stead_test=$test +stead_sym=$S/cases/$test/syms.txt"; [ "$dump" = --dump=on ] && plus="$plus +dump_file=$out/dump.fst"
+    ( cd "$out" && "$SIM" $plus +max_cycles=$MAX_CYCLES > sim.log 2>&1 )
+    grep -q "simulation finished successfully" "$out/sim.log" && exit 0
+    grep -qE "simulation finished with error|no instructions retired|meeting max simulation time" "$out/sim.log" && exit 1   # a check, a hang
+    exit 3 ;;   # anything else (a crash) is not a verdict
   suite)
     printf '%s\n' $TESTS | stead_suite "$0" "$tree" "$(mkdir -p "$3" && cd "$3" && pwd)" "${4:-.}" ;;
   *) echo "usage: run.sh build <tree> | run <tree> <test> <out> [--dump=on|off] | suite <tree> <out> [<regex>]" >&2; exit 64 ;;

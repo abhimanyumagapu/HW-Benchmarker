@@ -218,8 +218,9 @@ unmodified commit.{also} Find the cause.
 
 - `tree/` — the full buggy source tree, design docs included. The bug may be in the DUT
   ({c.dut_paths}) or in the testbench ({c.checker_paths}); say which.
-- `logs/fail.log` — everything the failing run printed, the verdict line last; next to it the
-  run's trace files, if the core has any. `tools/` — scripts for them; the skill says what each does.
+- `logs/fail.log` — everything the failing run printed, as the simulator printed it, the
+  testbench's own `FAIL` line among it; next to it the run's trace files, if the core has any.
+  `tools/` — scripts for them; the skill says what each does.
 - `waves/` — the failing run's dump (`{c.dump or "none"}`).
 
 ## STEAD
