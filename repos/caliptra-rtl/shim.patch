@@ -136,14 +136,14 @@ index 27f1650..f679291 100644
 +    endtask
 +
 +    always @(negedge clk) begin
-+        if (stead_pending && `CPTRA_TOP_PATH.initiator_inst.hready) begin  // the pending read's data phase
++        if (stead_pending && `CPTRA_TOP_PATH.initiator_inst.hreadyout) begin  // the data phase ends; hready is tied high, a wait state shows only here
 +            logic [63:0] d;
 +            d = `CPTRA_TOP_PATH.initiator_inst.hrdata;
 +            stead_last_read[stead_pending_addr[2] ? d[63:32] : d[31:0]] = '{32'(cycleCnt), stead_pending_addr, d};
 +            stead_pending = 0;
 +        end
 +        if (`CPTRA_TOP_PATH.initiator_inst.htrans == 2'b10 && !`CPTRA_TOP_PATH.initiator_inst.hwrite &&
-+            `CPTRA_TOP_PATH.initiator_inst.hready) begin                   // a read's address phase
++            `CPTRA_TOP_PATH.initiator_inst.hreadyout) begin                // a read's address phase
 +            stead_pending      = 1;
 +            stead_pending_addr = 32'(`CPTRA_TOP_PATH.initiator_inst.haddr);
 +        end
