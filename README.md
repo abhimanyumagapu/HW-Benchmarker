@@ -49,7 +49,7 @@ identically.
 git clone git@github.com:abhimanyumagapu/benchmarks.git && cd benchmarks
 uv sync && source .venv/bin/activate
 stead pull --all ghcr.io/abhimanyumagapu               # container images
-gh release download cases-v1 -p 'stead-cases-*.tar.gz'   # pre-baked cases
+gh release download cases-v3 -p 'stead-cases-*.tar.gz'   # pre-baked cases
 for f in stead-cases-*.tar.gz; do tar xzf "$f"; done
 export ANTHROPIC_API_KEY=...
 stead solve --all anthropic/claude-sonnet-4-5+high 3
@@ -75,9 +75,11 @@ stead table
 there are two ways to obtain them.
 
 **Download a pre-baked set.** One archive per core, published on the repository's releases page.
+The current set is [cases-v3](https://github.com/abhimanyumagapu/HW-Benchmarker/releases/tag/cases-v3):
+47 cases on scr1, ibex, caliptra-rtl, cva6 and openc910. rocket-chip's cases are in cases-v2.
 
 ```bash
-gh release download -p 'stead-cases-*.tar.gz' -p SHA256SUMS   # newest release
+gh release download cases-v3 -p 'stead-cases-*.tar.gz' -p SHA256SUMS
 shasum -a 256 -c SHA256SUMS                          # verify the downloads
 for f in stead-cases-*.tar.gz; do tar xzf "$f"; done  # each unpacks at the repository root
 stead check --all                                    # validate them against the images
@@ -85,7 +87,7 @@ stead check --all                                    # validate them against the
 
 The archives are on the [releases page](https://github.com/abhimanyumagapu/HW-Benchmarker/releases).
 One tarball per core, so a single core can be taken on its own. Omitting the tag takes the newest
-release; name a tag, as in `gh release download cases-v1`, to reproduce an earlier evaluation.
+release; name a tag, as in `gh release download cases-v2`, to reproduce an earlier evaluation.
 
 **Or bake them.** Reproduces exactly the same tree from the specs, and is the only route for a bug
 that has not been published. It runs each test twice under simulation and captures a waveform, so it
